@@ -167,16 +167,28 @@ Hata biçimi: `{"error": {"code": "...", "message": "..."}}` — `VALIDATION_ERR
 - **Saha:** PT-P900WC ile gerçek baskı; QR'ın en az 5 farklı Android/iPhone ile okunması; uzun marka-model/seri metinleri; şerit genişliği–ölçü tutarlılığı; yıpranma.
 - **Performans/güvenlik:** 10.000+ kayıtla arama; eşzamanlı kullanıcı; büyük Excel; doğrudan URL erişim denetimi; yedekten geri yükleme tatbikatı.
 
-## 11. Yol haritası
+## 11. Pro modüller (v0.2)
 
-| Faz | Kapsam | Durum |
+| Modül | Ne yapar | Nerede |
 |---|---|---|
-| **0 Gereksinim** | Etiket ölçüsü/şerit, logo izni, yazıcı bağlantısı (USB/Wi-Fi), sunucu PC, DNS adı, oturumsuz alanlar | Açık kararlar §13 |
-| **1 Temel ürün** | CRUD, arama/filtre/sayfalama, QR önizleme, detay + geçmiş, roller, denetim | ✅ v0.1 |
-| **2 Excel** | Analiz, eşleştirme, yeni alan, dry-run, atla/güncelle, rapor, dışa aktarma, şablon | ✅ v0.1 |
-| **3 Etiket & yazıcı** | mm şablon editörü, logo, PDF, Windows yazıcı adaptörü, baskı geçmişi | ✅ v0.1 · saha testi bekliyor |
-| **4 Sağlamlaştırma** | Otomatik yedek, güncelleme, pilot (BİM içi küçük grup), 10.000+ kayıt testi, kullanıcı kılavuzu | Kısmen |
-| **5 Genişletme** | Lisans, Windows hizmeti/tepsi simgesi, HTTPS, LDAP/AD, bakım iş akışı, zimmet, ekler | Planlı (§14) |
+| **Arıza kayıtları** | QR sayfasından oturumsuz bildirim (ad + açıklama, IP başına hız sınırı), takip no ve `/t/<kod>` durum sayfası; BİM tarafında atama, öncelik, durum, notlar, çözüm; çözüm tek tıkla bilgi bankasına | `tickets.py`, Arıza Kayıtları |
+| **Sayım** | Birim veya tüm envanter için sayım; barkod okuyucu, telefon kamerası (HTTPS'te) veya QR sayfasındaki “Sayıma ekle”; bağlantı koparsa okutmalar telefonda kuyruğa alınır; bulunamayan / başka birimden / tanınmayan raporu, Excel ve imzalı tutanak; kapatırken yer güncelleme | `counts.py`, Sayım |
+| **Zimmet & devir** | Kişiye/birime zimmet, devir (önceki zimmet aynı belgeyle kapanır), iade; ekrandan imza; `Z-YYYY-NNNNN` / `I-…` belge no ile yazdırılabilir tutanak | `assignments.py`, Zimmet |
+| **Bakım & garanti** | Cihaz başına periyodik bakım planı, “yapıldı” ile sonraki tarih; Garanti Bitiş alanından uyarı | `maintenance.py` |
+| **Sarf stok** | Toner/kartuş vb.; giriş-çıkış hareketi, cihaza verilen sarf cihaz geçmişine düşer; en az stok uyarısı; uyumlu model eşleşmesiyle cihaz sayfasında öneri | `stock.py` |
+| **Bilgi bankası** | Model/donanım anahtar kelimeli sorun→çözüm kayıtları; cihaz sayfasında otomatik öneri | `kb.py` |
+| **Ağ keşfi** | Ping taraması + ARP; SNMP v2c ile switch MAC tablosu (BRIDGE/Q-BRIDGE) → port/VLAN, yönlendirici ARP → IP; envanterde olmayan ve X gündür görülmeyen cihazlar; zamanlanmış tarama. Bağımlılıksız SNMP istemcisi (`snmp.py`) | `network.py` |
+| **PC ajanı** | PowerShell betiği (GPO ile dağıtılır) seri no, model, CPU, RAM, disk, OS, MAC, IP, kullanıcı gönderir; seri no → MAC → bilgisayar adı ile eşler; elle girilen alanları ezmez; eşleşmeyenler elle bağlanır | `agent.py` |
+| **NexDesk / uzak bağlantı** | Ayarlanabilir şablon (ör. `nexdesk://connect/{nexdesk_id}`) ile cihaz sayfasında “Uzak bağlan”. NexDesk tarafında bu URL şemasının tanımlı olması gerekir | Ayarlar |
+| **Birim temsilcisi** | Rol: yalnızca kendi birim(ler)inin cihazları, sayımları, arızaları | `auth.scope()` |
+| **Raporlar** | Yenileme/yatırım gerekçesi (yaş, 12 ay arıza, arızalı oranı), taşınır listesi, denetim paketi ZIP, hurda (terkin) tutanağı | `reports.py` |
+| **Kurumlar paneli** | Diğer NexEnvanter sunucularının özetini API anahtarıyla salt okunur toplar | `federation.py` |
+| **Active Directory** | LDAP bind (UPN), grup→rol (ve birim) eşlemesi, test düğmesi; yerel hesaplar çalışmaya devam eder | `auth.py` |
+| **API anahtarları** | `Authorization: Bearer nxt_…`, rol bazlı; entegrasyon ve kurumlar paneli | Ayarlar |
+| **Lisans** | Ed25519 imzalı lisans + makine kimliği; sürüm türleri (Ücretsiz/Standart/Pro) ve sınırlar. Şu an **zorlanmıyor** (`ENFORCE=False`); `tools/license_tool.py` ile anahtar/lisans üretimi | `license.py` |
+| **Tepsi & hizmet & HTTPS** | Pencereli exe tepsi simgesiyle çalışır; “arka plan hizmeti olarak kur” (açılışta oturumsuz, SYSTEM zamanlanmış görevi); kendinden imzalı veya kurum sertifikasıyla HTTPS | `main.py`, `tls.py` |
+
+**Açık noktalar (saha doğrulaması gerekir):** SNMP okuması gerçek switch modellerinde; Brother baskısı; MKYS'ye aktarım biçimi (taşınır listesi sütunları kurumca doğrulanmalı); NexDesk URL şeması; AD grup adları.
 
 ## 12. Karar günlüğü
 
@@ -188,7 +200,10 @@ Hata biçimi: `{"error": {"code": "...", "message": "..."}}` — `VALIDATION_ERR
 | K-04 | Alan değerleri JSON + `fields` şeması | Excel sütunları artacak; kod/şema değişmeden alan ekleme |
 | K-05 | QR = temel adres + 12 karakter rastgele kimlik | Kısa QR (daha büyük modül, kolay okuma), tahmin edilemez |
 | K-06 | Etiket tek çizicide (Pillow) → önizleme, PDF, yazıcı aynı görüntü | Ekranda görülen = basılan |
-| K-07 | Lisans şimdilik kapalı; kanca `app/license.py` | Lisanslı derlemeye geçişte tek modül değişir |
+| K-07 | Lisans altyapısı hazır, zorlanmıyor (`ENFORCE=False`) | Lisanslı derlemeye geçişte yalnızca anahtar + bayrak değişir |
+| K-08 | Birim temsilcisi kapsamı sunucu tarafında (`location_name` eşleşmesi, Türkçe katlamalı) | Arayüzü atlayan doğrudan API çağrısı da kısıtlı kalır |
+| K-09 | Ağ keşfi bağımlılıksız SNMP + ping/ARP | Exe küçük kalır; switch'e salt-okuma erişimi yeter |
+| K-10 | Hizmet = SYSTEM zamanlanmış görevi (ONSTART) | onefile exe ile Windows servis sarmalayıcısı gerektirmez |
 
 ## 13. Açık kararlar
 
@@ -199,15 +214,10 @@ Hata biçimi: `{"error": {"code": "...", "message": "..."}}` — `VALIDATION_ERR
 5. Logo dosyalarının yüksek çözünürlüklü, kullanım izni olan sürümü.
 6. Kimlik: yerel kullanıcı (şu an) mı, Active Directory mi?
 
-## 14. Geliştirme fikirleri (öncelik sırasıyla)
+## 14. Sonraki adımlar
 
-1. **Lisanslama:** Ed25519 imzalı lisans dosyası + makine kimliği (`license.machine_id()` hazır); sürüm türüne göre kayıt/kullanıcı sınırı.
-2. **Windows hizmeti / tepsi simgesi:** oturum kapalıyken de çalışma, konsol penceresi yerine tepsi menüsü.
-3. **Kamera ile sayım (envanter turu):** telefondan art arda QR okutup "görüldü" işaretleme; birim bazlı sayım raporu ve kayıp/fazla listesi.
-4. **Zimmet ve devir-teslim:** kişi/birim zimmeti, imzalı devir tutanağı PDF'i.
-5. **Bakım/arıza iş akışı:** açık–devam–kapalı durumları, servis firması, maliyet, garanti bitiş uyarısı.
-6. **Belge ekleri:** fatura, garanti, fotoğraf.
-7. **Ağ keşfi entegrasyonu:** NexScan/SNMP ile MAC–IP–switch portu eşleştirme; envanterde olmayan cihaz uyarısı.
-8. **HBYS/AD entegrasyonu:** LDAP girişi, kullanıcı listesinden zimmet.
-9. **Raporlar:** birim × tür matrisi, yaş/garanti analizi, denetim dışa aktarma.
-10. **Çoklu yazıcı profilleri** ve Brother b-PAC/SDK adaptörü (kesme, yarım kesme, yüksek çözünürlük).
+1. Lisanslı derleme: `tools/license_tool.py keygen` → `PUBLIC_KEY`, `ENFORCE=True`.
+2. Saha: SNMP'yi hastane switch'lerinde, ajanı birkaç PC'de, PT-P900WC baskısını dene.
+3. Mobil: PWA (HTTPS ile) — ana ekrana eklenebilir sayım uygulaması.
+4. Belge ekleri (fatura, garanti, fotoğraf) ve e-posta/Telegram bildirimleri (yeni arıza, kritik stok).
+5. HBYS entegrasyonu için API belgesi.

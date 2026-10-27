@@ -105,6 +105,17 @@ DEFAULT_SETTINGS = {
     "backup_keep": 14,
     "label_template": None,     # labels.DEFAULT_TEMPLATE
     "default_printer": "",
+    # Pro
+    "public_tickets": True,          # QR sayfasından oturumsuz arıza bildirimi
+    "ticket_categories": ["Açılmıyor / çalışmıyor", "Yazdırma sorunu", "Ağ / internet", "Yazılım / HBYS", "Ekran / çevre birimi", "Diğer"],
+    "remote_url_template": "",       # ör. nexdesk://connect/{nexdesk_id}
+    "ldap": {"enabled": False, "server": "", "domain": "", "base_dn": "", "use_ssl": False,
+             "role_map": [], "default_role": "viewer", "allow_unmapped": False},
+    "net_scan": {"subnets": [], "interval_hours": 0, "stale_days": 30},
+    "renewal": {"age_years": 5, "tickets_12m": 3},
+    "maintenance_warn_days": 14,
+    "warranty_warn_days": 60,
+    "tls": {"enabled": False},
 }
 
 _local = threading.local()
@@ -120,6 +131,8 @@ def connect() -> sqlite3.Connection:
     c.execute("PRAGMA journal_mode=WAL")
     c.execute("PRAGMA synchronous=NORMAL")
     c.execute("PRAGMA foreign_keys=ON")
+    from .textnorm import fold
+    c.create_function("fold", 1, lambda v: fold(v) if v is not None else None, deterministic=True)
     return c
 
 
@@ -159,7 +172,82 @@ def init():
             for k, v in DEFAULT_SETTINGS.items():
                 t.execute("INSERT OR IGNORE INTO settings VALUES(?,?)", (k, json.dumps(v, ensure_ascii=False)))
         c.execute("PRAGMA user_version=1")
-    # Gelecek geçişler: if ver < 2: ...
+    if ver < 2:
+        with tx() as t:
+            for stmt in SCHEMA_V2.split(";"):
+                if stmt.strip():
+                    t.execute(stmt)
+            for key, label, typ, al, sl, sp, pub, sort in FIELDS_V2:
+                t.execute("INSERT OR IGNORE INTO fields(key,label,type,aliases,show_list,show_preview,public,sort)"
+                          " VALUES(?,?,?,?,?,?,?,?)", (key, label, typ, json.dumps(al), sl, sp, pub, sort))
+            import secrets
+            t.execute("INSERT OR IGNORE INTO settings VALUES('agent_token',?)", (json.dumps(secrets.token_urlsafe(24)),))
+        c.execute("PRAGMA user_version=2")
+    # Gelecek geçişler: if ver < 3: ...
+
+
+SCHEMA_V2 = """
+ALTER TABLE users ADD COLUMN source TEXT NOT NULL DEFAULT 'local';
+ALTER TABLE users ADD COLUMN units TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE users ADD COLUMN email TEXT;
+CREATE TABLE api_tokens (id INTEGER PRIMARY KEY, name TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE, role TEXT NOT NULL,
+  created_at TEXT NOT NULL, created_by TEXT, last_used TEXT, active INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE tickets (id INTEGER PRIMARY KEY, asset_id INTEGER, status TEXT NOT NULL DEFAULT 'yeni', priority TEXT NOT NULL DEFAULT 'normal',
+  category TEXT, description TEXT NOT NULL, reporter_name TEXT, reporter_contact TEXT, reporter_unit TEXT, reporter_ip TEXT,
+  source TEXT NOT NULL DEFAULT 'panel', assigned_to TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+  resolved_at TEXT, resolution TEXT, kb_id INTEGER, public_code TEXT);
+CREATE INDEX ix_tickets_status ON tickets(status);
+CREATE INDEX ix_tickets_asset ON tickets(asset_id);
+CREATE TABLE ticket_notes (id INTEGER PRIMARY KEY, ticket_id INTEGER NOT NULL, at TEXT NOT NULL, user TEXT, note TEXT NOT NULL);
+CREATE TABLE counts (id INTEGER PRIMARY KEY, name TEXT NOT NULL, location TEXT, status TEXT NOT NULL DEFAULT 'açık',
+  created_at TEXT NOT NULL, created_by TEXT, closed_at TEXT, closed_by TEXT, note TEXT);
+CREATE TABLE count_items (count_id INTEGER NOT NULL, asset_id INTEGER NOT NULL, seen_at TEXT NOT NULL, seen_by TEXT,
+  seen_location TEXT, PRIMARY KEY(count_id, asset_id));
+CREATE TABLE count_unknown (id INTEGER PRIMARY KEY, count_id INTEGER NOT NULL, code TEXT NOT NULL, seen_at TEXT NOT NULL, seen_by TEXT);
+CREATE TABLE assignments (id INTEGER PRIMARY KEY, doc_no TEXT NOT NULL, asset_id INTEGER NOT NULL, kind TEXT NOT NULL DEFAULT 'kişi',
+  holder_name TEXT NOT NULL, holder_title TEXT, holder_unit TEXT, started_at TEXT NOT NULL, ended_at TEXT, created_by TEXT,
+  ended_by TEXT, note TEXT, signature TEXT, giver_signature TEXT, return_doc_no TEXT, return_signature TEXT);
+CREATE INDEX ix_assign_asset ON assignments(asset_id);
+CREATE INDEX ix_assign_doc ON assignments(doc_no);
+CREATE TABLE maintenance_plans (id INTEGER PRIMARY KEY, asset_id INTEGER NOT NULL, title TEXT NOT NULL, interval_days INTEGER NOT NULL,
+  next_due TEXT NOT NULL, last_done TEXT, note TEXT, active INTEGER NOT NULL DEFAULT 1, created_by TEXT, created_at TEXT NOT NULL);
+CREATE INDEX ix_maint_due ON maintenance_plans(active, next_due);
+CREATE TABLE consumables (id INTEGER PRIMARY KEY, name TEXT NOT NULL, code TEXT, unit TEXT NOT NULL DEFAULT 'adet', stock REAL NOT NULL DEFAULT 0,
+  min_stock REAL NOT NULL DEFAULT 0, compatible TEXT, location TEXT, note TEXT, active INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE consumable_moves (id INTEGER PRIMARY KEY, consumable_id INTEGER NOT NULL, at TEXT NOT NULL, user TEXT, qty REAL NOT NULL,
+  asset_id INTEGER, note TEXT);
+CREATE TABLE kb (id INTEGER PRIMARY KEY, title TEXT NOT NULL, body TEXT NOT NULL, match TEXT, tags TEXT, created_by TEXT,
+  created_at TEXT NOT NULL, updated_by TEXT, updated_at TEXT NOT NULL, views INTEGER NOT NULL DEFAULT 0, search TEXT NOT NULL DEFAULT '');
+CREATE TABLE net_seen (mac TEXT PRIMARY KEY, ip TEXT, hostname TEXT, switch TEXT, port TEXT, vlan TEXT, first_seen TEXT NOT NULL,
+  last_seen TEXT NOT NULL, source TEXT);
+CREATE TABLE net_switches (id INTEGER PRIMARY KEY, name TEXT, host TEXT NOT NULL, community TEXT NOT NULL DEFAULT 'public',
+  active INTEGER NOT NULL DEFAULT 1, last_poll TEXT, last_error TEXT);
+CREATE TABLE agent_reports (hostname TEXT PRIMARY KEY, serial TEXT, macs TEXT, data TEXT NOT NULL, ip TEXT, at TEXT NOT NULL,
+  asset_id INTEGER);
+CREATE TABLE federation (id INTEGER PRIMARY KEY, name TEXT NOT NULL, url TEXT NOT NULL, token TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1,
+  last_ok TEXT, last_error TEXT);
+CREATE TABLE disposals (id INTEGER PRIMARY KEY, doc_no TEXT NOT NULL, at TEXT NOT NULL, user TEXT, reason TEXT, commission TEXT,
+  asset_ids TEXT NOT NULL)
+"""
+
+# Pro sürüm alanları: taşınır mevzuatı, ağ, ajan, NexDesk
+FIELDS_V2 = [
+    ("tasinir_kodu", "Taşınır Kodu", "text", ["tasinir kodu", "tasinir kod", "hesap kodu"], 0, 0, 0, 100),
+    ("sicil_no", "Sicil No", "text", ["sicil", "sicil no", "sicil numarasi", "demirbas sicil"], 0, 0, 0, 102),
+    ("purchase_date", "Edinme Tarihi", "date", ["edinme tarihi", "alim tarihi", "alis tarihi", "satin alma tarihi", "giris tarihi"], 0, 0, 0, 104),
+    ("purchase_price", "Edinme Bedeli", "number", ["edinme bedeli", "bedel", "fiyat", "alis fiyati", "tutar"], 0, 0, 0, 106),
+    ("supplier", "Tedarikçi", "text", ["tedarikci", "firma", "satici"], 0, 0, 0, 108),
+    ("warranty_end", "Garanti Bitiş", "date", ["garanti", "garanti bitis", "garanti bitis tarihi"], 0, 0, 0, 110),
+    ("hostname", "Bilgisayar Adı", "text", ["bilgisayar adi", "hostname", "host", "pc adi", "cihaz adi"], 0, 0, 0, 120),
+    ("ip_address", "IP Adresi", "text", ["ip", "ip adresi", "ip adres"], 0, 0, 0, 122),
+    ("nexdesk_id", "NexDesk ID", "text", ["nexdesk", "nexdesk id", "uzak masaustu id"], 0, 0, 0, 124),
+    ("os", "İşletim Sistemi", "text", ["isletim sistemi", "os"], 0, 0, 0, 130),
+    ("cpu", "İşlemci", "text", ["islemci", "cpu"], 0, 0, 0, 132),
+    ("ram_gb", "RAM (GB)", "number", ["ram", "bellek", "ram gb"], 0, 0, 0, 134),
+    ("disk", "Disk", "text", ["disk", "depolama"], 0, 0, 0, 136),
+    ("last_user", "Son Oturum Açan", "text", ["son kullanici", "kullanici"], 0, 0, 0, 138),
+    ("agent_seen_at", "Ajan Son Bildirim", "text", [], 0, 0, 0, 140),
+]
 
 
 def get_setting(key, default=None):

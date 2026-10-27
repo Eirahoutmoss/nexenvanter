@@ -11,8 +11,10 @@ from . import APP_NAME, AUTHOR, VERSION, assets as A, auth, db, exporter, fields
 from .paths import DIRS, WEB_DIR
 
 COOKIE = "nx_session"
+CSRF_EXEMPT = {"/api/agent/report"}
 app = FastAPI(title=APP_NAME, version=VERSION, docs_url=None, redoc_url=None, openapi_url=None)
 app.state.port = 8750
+app.state.scheme = "http"
 app.state.shutdown = lambda: None
 
 
@@ -49,11 +51,9 @@ async def _prn_err(_, e):
 async def _guard(request: Request, call_next):
     # CSRF: değiştiren API çağrıları özel başlık taşımalı (başka siteden form ile gönderilemez)
     if request.url.path.startswith("/api/") and request.method not in ("GET", "HEAD", "OPTIONS"):
-        if request.headers.get("x-nx") != "1":
+        if request.headers.get("x-nx") != "1" and not (request.headers.get("authorization") or "").lower().startswith("bearer ") \
+                and request.url.path not in CSRF_EXEMPT:
             return _err(403, "CSRF", "Geçersiz istek kaynağı")
-    if license.LICENSE_REQUIRED and not license.is_valid() and request.url.path.startswith("/api/") \
-            and request.url.path not in ("/api/state", "/api/license"):
-        return _err(402, "LICENSE", "Geçerli lisans bulunamadı")
     resp = await call_next(request)
     resp.headers.setdefault("X-Content-Type-Options", "nosniff")
     resp.headers.setdefault("X-Frame-Options", "DENY")
@@ -67,6 +67,9 @@ def ip(req: Request):
 
 
 def current_user(req: Request):
+    h = req.headers.get("authorization") or ""
+    if h.lower().startswith("bearer "):
+        return auth.token_user(h[7:].strip())
     return auth.session_user(req.cookies.get(COOKIE))
 
 
@@ -94,7 +97,7 @@ def lan_ip() -> str:
 
 def base_url() -> str:
     b = (db.get_setting("base_url") or "").strip().rstrip("/")
-    return b or f"http://{lan_ip()}:{app.state.port}"
+    return b or f"{app.state.scheme}://{lan_ip()}:{app.state.port}"
 
 
 def qr_url(a: dict) -> str:
@@ -111,6 +114,13 @@ async def body(req: Request) -> dict:
 def _asset_or_404(aid: int) -> dict:
     a = A.get(aid)
     if not a:
+        raise ApiError(404, "NOT_FOUND", "Kayıt bulunamadı")
+    return a
+
+
+def scoped_asset(u, aid: int) -> dict:
+    a = _asset_or_404(aid)
+    if not auth.in_scope(u, a["data"].get("location_name")):
         raise ApiError(404, "NOT_FOUND", "Kayıt bulunamadı")
     return a
 
@@ -204,7 +214,7 @@ async def edit_field(key: str, req: Request, u=Depends(need("fields"))):
 def list_assets(req: Request, q: str = "", status: str = "", archived: str = "0", sort: str = "updated_at",
                 dir: str = "desc", page: int = 1, size: int = 50, u=Depends(need("asset.read"))):
     filters = {k[2:]: v for k, v in req.query_params.items() if k.startswith("f.")}
-    return A.query(q, status or None, archived, filters, sort, dir, page, size)
+    return A.query(q, status or None, archived, filters, sort, dir, page, size, locations=auth.scope(u))
 
 
 @app.post("/api/assets")
@@ -217,15 +227,16 @@ async def create_asset(req: Request, u=Depends(need("asset.write"))):
 @app.get("/api/assets/by-code/{code}")
 def asset_by_code(code: str, u=Depends(need("asset.read"))):
     a = A.get_by_code(code)
-    if not a:
+    if not a or not auth.in_scope(u, a["data"].get("location_name")):
         raise ApiError(404, "NOT_FOUND", "Bu barkodla kayıt yok")
     return a
 
 
 @app.get("/api/assets/{aid}")
 def get_asset(aid: int, u=Depends(need("asset.read"))):
-    a = _asset_or_404(aid)
-    return {**a, "events": A.events(aid), "qr_url": qr_url(a)}
+    a = scoped_asset(u, aid)
+    from . import api_pro
+    return {**a, "events": A.events(aid), "qr_url": qr_url(a), **api_pro.asset_extras(a, u)}
 
 
 @app.patch("/api/assets/{aid}")
@@ -258,12 +269,12 @@ async def add_event(aid: int, req: Request, u=Depends(need("asset.write"))):
 
 @app.get("/api/values/{key}")
 def values(key: str, u=Depends(need("asset.read"))):
-    return A.distinct_values(key)
+    return A.distinct_values(key, locations=auth.scope(u))
 
 
 @app.get("/api/stats")
 def stats(u=Depends(need("asset.read"))):
-    return A.stats()
+    return A.stats(auth.scope(u))
 
 
 def _xlsx(data: bytes, name: str):
@@ -277,7 +288,7 @@ def export(req: Request, q: str = "", status: str = "", archived: str = "0", sor
     filters = {k[2:]: v for k, v in req.query_params.items() if k.startswith("f.")}
     id_list = [int(x) for x in ids.split(",") if x.strip().isdigit()] or None
     data = exporter.export_assets(q=q, status=status or None, archived=archived, filters=filters, sort=sort,
-                                  direction=dir, ids=id_list)
+                                  direction=dir, ids=id_list, locations=auth.scope(u))
     db.audit(u["username"], "export", None, {"q": q, "filters": filters}, ip(req))
     return _xlsx(data, f"envanter-{db.now()[:10]}.xlsx")
 
@@ -368,7 +379,7 @@ def _sample_asset():
 
 @app.get("/api/labels/preview/{aid}.png")
 def label_png(aid: int, u=Depends(need("asset.read"))):
-    a = _sample_asset() if aid == 0 else _asset_or_404(aid)
+    a = _sample_asset() if aid == 0 else scoped_asset(u, aid)
     return Response(labels.png(labels.render(a, qr_url(a))), media_type="image/png",
                     headers={"Cache-Control": "no-store"})
 
@@ -464,7 +475,12 @@ def users(u=Depends(need("users"))):
 @app.post("/api/users")
 async def add_user(req: Request, u=Depends(need("users"))):
     b = await body(req)
-    nu = auth.create_user(b.get("username"), b.get("password"), b.get("role", "viewer"), b.get("full_name"))
+    try:
+        license.check_limit("users", db.conn().execute("SELECT COUNT(*) FROM users WHERE active=1").fetchone()[0])
+    except PermissionError as e:
+        raise ApiError(402, "LICENSE_LIMIT", str(e))
+    nu = auth.create_user(b.get("username"), b.get("password"), b.get("role", "viewer"), b.get("full_name"),
+                          b.get("units"), b.get("email"))
     db.audit(u["username"], "user_create", nu["username"], {"role": nu["role"]}, ip(req))
     return nu
 
@@ -490,14 +506,19 @@ def audit_log(page: int = 1, q: str = "", u=Depends(need("audit"))):
     return {"total": total, "items": [dict(r) for r in rows]}
 
 
-SETTING_KEYS = ("org_name", "unit_name", "system_title", "base_url", "import_ignore_headers", "backup_keep", "default_printer")
+SETTING_KEYS = ("org_name", "unit_name", "system_title", "base_url", "import_ignore_headers", "backup_keep", "default_printer",
+                "public_tickets", "ticket_categories", "remote_url_template", "ldap", "net_scan", "renewal",
+                "maintenance_warn_days", "warranty_warn_days")
 
 
 @app.get("/api/settings")
 def get_settings(u=Depends(need("asset.read"))):
     s = db.all_settings()
-    return {k: s.get(k) for k in SETTING_KEYS} | {"detected_url": f"http://{lan_ip()}:{app.state.port}",
-                                                  "data_dir": str(DIRS.data) if auth.can(u, "settings") else None}
+    keys = SETTING_KEYS if auth.can(u, "settings") else ("org_name", "unit_name", "system_title", "ticket_categories",
+                                                          "remote_url_template", "maintenance_warn_days", "warranty_warn_days")
+    return {k: s.get(k) for k in keys} | {"detected_url": f"{app.state.scheme}://{lan_ip()}:{app.state.port}",
+                                          "data_dir": str(DIRS.data) if auth.can(u, "settings") else None,
+                                          "agent_token": s.get("agent_token") if auth.can(u, "network") else None}
 
 
 @app.put("/api/settings")
@@ -550,36 +571,10 @@ def upd_apply(req: Request, u=Depends(need("settings"))):
         raise ApiError(400, "UPDATE_FAILED", str(e))
 
 
-# ---------- QR önizleme (telefon) ----------
-_PREVIEW = """<!doctype html><html lang="tr"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>{title}</title>
-<link rel="stylesheet" href="/static/preview.css"></head><body><main class="card">
-<header><div class="org">{org}</div><div class="unit">{unit}</div></header>
-{body}</main><footer>NexEnvanter</footer></body></html>"""
+# ---------- pro modüller ----------
+from . import api_pro  # noqa: E402
 
-
-@app.get("/e/{public_id}", response_class=HTMLResponse)
-def preview(public_id: str, req: Request):
-    s = db.all_settings()
-    a = A.get(public_id=public_id) if public_id.replace("-", "").replace("_", "").isalnum() else None
-    esc = html.escape
-    if not a:
-        b = '<div class="state bad">Kayıt bulunamadı</div><p class="muted">Etiket geçersiz ya da kayıt silinmiş olabilir.</p>'
-        return HTMLResponse(_PREVIEW.format(title="Bulunamadı", org=esc(s["org_name"]), unit=esc(s["unit_name"]), body=b), 404)
-    u = current_user(req)
-    rows = []
-    for f in F.all_fields():
-        if not (f["public"] or (u and f["show_preview"])):
-            continue
-        v = a.get(f["key"]) if f["system"] else a["data"].get(f["key"])
-        if v:
-            rows.append(f"<dt>{esc(f['label'])}</dt><dd>{esc(str(v))}</dd>")
-    state = '<div class="state warn">Arşivde</div>' if a["archived"] else '<div class="state ok">Cihaz bilgisi bulundu</div>'
-    detail = (f'<a class="btn" href="/#/asset/{a["id"]}">Detayları Gör →</a>' if u and auth.can(u, "asset.read")
-              else f'<a class="btn" href="/#/login?next=/asset/{a["id"]}">Giriş yap ve detayları gör →</a>')
-    b = f'{state}<div class="code">{esc(a["asset_code"])}</div><dl>{"".join(rows)}</dl>{detail}'
-    return HTMLResponse(_PREVIEW.format(title=esc(a["asset_code"]), org=esc(s["org_name"]), unit=esc(s["unit_name"]), body=b))
-
+app.include_router(api_pro.router)
 
 # ---------- web arayüzü ----------
 app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")

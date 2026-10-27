@@ -34,15 +34,31 @@ function download(url) { const a = document.createElement("a"); a.href = url; a.
 
 /* ---------------- yerleşim ---------------- */
 const NAV = [
-  ["/", "⌂", "Ana Sayfa", "asset.read"], ["/assets", "▤", "Cihazlar", "asset.read"], ["/new", "＋", "Yeni Cihaz", "asset.write"],
+  ["/", "⌂", "Ana Sayfa", "asset.read"], ["/assets", "▤", "Cihazlar", "asset.read"],
+  ["-", "Operasyon"],
+  ["/tickets", "⚠", "Arıza Kayıtları", "ticket.read", "tickets_new"], ["/counts", "✓", "Sayım", "count"],
+  ["/assign", "✍", "Zimmet", "asset.read"], ["/maint", "🔧", "Bakım & Garanti", "asset.read", "maint_overdue"],
+  ["/stock", "▣", "Sarf Stok", "stock.read", "low_stock"], ["/kb", "✎", "Bilgi Bankası", "kb.read"],
+  ["-", "Analiz"],
+  ["/network", "⇄", "Ağ & Ajan", "network"], ["/reports", "▥", "Raporlar", "reports"], ["/federation", "⌘", "Kurumlar", "federation"],
+  ["-", "Yönetim"],
   ["/import", "⇪", "Excel İşlemleri", "import"], ["/labels", "▦", "Etiket & Yazıcı", "print"], ["/fields", "☰", "Alanlar", "fields"],
   ["/users", "☺", "Kullanıcılar", "users"], ["/audit", "⌕", "Denetim Kaydı", "audit"], ["/settings", "⚙", "Ayarlar", "asset.read"],
 ];
+function navHtml() {
+  const items = NAV.filter(n => n[0] === "-" || can(n[3]));
+  return items.filter((n, i) => n[0] !== "-" || (items[i + 1] && items[i + 1][0] !== "-")).map(n => n[0] === "-"
+    ? `<div class="nav-h">${n[1]}</div>`
+    : `<a href="#${n[0]}" data-p="${n[0]}"><span class="ic">${n[1]}</span>${n[2]}${n[4] ? `<span class="bdg" data-b="${n[4]}"></span>` : ""}</a>`).join("");
+}
+async function refreshBadges() {
+  try { const b = await api("/api/badges"); $$("[data-b]").forEach(x => { const n = b[x.dataset.b] || 0; x.textContent = n; x.hidden = !n; }); } catch (_) {}
+}
 function shell() {
   const u = S.state.user;
   $("#app").innerHTML = `<div class="shell"><aside class="side" id="side">
     <div class="brand"><img src="/static/logo.svg" alt=""><span>Nex<b>Envanter</b></span></div>
-    <nav class="nav">${NAV.filter(n => can(n[3])).map(n => `<a href="#${n[0]}" data-p="${n[0]}"><span class="ic">${n[1]}</span>${n[2]}</a>`).join("")}</nav>
+    <nav class="nav">${navHtml()}</nav>
     <div class="foot">${esc(S.state.app.name)} ${esc(S.state.app.version)}<br>${esc(S.state.app.author)}</div></aside>
     <div class="main"><div class="top no-print"><button class="btn menu-btn" id="menu">☰</button>
       <input class="search" id="gsearch" placeholder="Cihaz, seri no, birim ara… (barkod okutup Enter)">
@@ -51,6 +67,7 @@ function shell() {
       <button class="btn s" id="logout">Çıkış</button></div></div><div id="view"></div></div></div>`;
   $("#logout").onclick = async () => { await api("/api/logout", {method: "POST"}); S.state.user = null; go("/login"); };
   $("#menu").onclick = () => $("#side").classList.toggle("open");
+  refreshBadges(); clearInterval(S.bt); S.bt = setInterval(refreshBadges, 60000);
   $("#gsearch").onkeydown = async e => {
     if (e.key !== "Enter") return;
     const v = e.target.value.trim(); if (!v) return;
@@ -73,10 +90,13 @@ async function route() {
   setActive(path);
   const v = $("#view");
   const m = path.match(/^\/asset\/(\d+)/);
+  const pm = path.match(/^(\/[a-z]+)\/(\d+)$/);
   try {
     if (path === "/") await dashboard(v);
     else if (path === "/assets") await assetList(v, params);
-    else if (path === "/new") await assetForm(v, null);
+    else if (path === "/new") await assetForm(v, null, params);
+    else if (PRO[path]) await PRO[path](v, params);
+    else if (pm && PRO[pm[1] + "/:id"]) await PRO[pm[1] + "/:id"](v, +pm[2], params);
     else if (m) await assetDetail(v, +m[1], params.edit);
     else if (path === "/import") await importPage(v);
     else if (path === "/labels") await labelsPage(v, params);
@@ -134,11 +154,12 @@ async function dashboard(v) {
   const bars = (arr) => { const mx = Math.max(1, ...arr.map(x => x.count)); return arr.map(x => `<div style="margin-bottom:9px"><div class="row small"><span>${esc(x.name)}</span><span class="sp"></span><b>${x.count}</b></div><div class="bar"><i style="width:${x.count / mx * 100}%"></i></div></div>`).join("") || `<p class="muted">Kayıt yok</p>`; };
   v.innerHTML = `<h1>Ana Sayfa</h1><div class="grid g4">
     ${card("🖥", "#1463ff", s.total, "Toplam Cihaz")}${card("✔", "#13a05a", n("aktif"), "Aktif")}
-    ${card("🔧", "#e6930a", n("bakımda") + n("serviste") + n("arızalı"), "Bakım / Serviste / Arızalı")}${card("⚠", "#d93636", n("hurda") + s.archived, "Hurda / Arşiv")}</div>
+    ${card("🔧", "#e6930a", n("bakımda") + n("serviste") + n("arızalı"), "Bakım / Serviste / Arızalı")}${card("⚠", "#d93636", n("hurda") + s.archived, "Hurda / Arşiv")}</div><div id="dpro"></div>
     <div class="grid g3"><div class="card"><h2>Birimlere göre</h2>${bars(s.by_location)}</div>
     <div class="card"><h2>Donanım türüne göre</h2>${bars(s.by_hardware)}</div>
     <div class="card"><h2>Son güncellenenler</h2><ul class="tl">${s.recent.map(a => `<li><a href="#/asset/${a.id}"><b>${esc(a.asset_code)}</b></a> ${esc(a.data.brand_model || "")}<div class="small muted">${fmtDate(a.updated_at)} · ${esc(a.updated_by || "")}</div></li>`).join("") || "<li class=muted>Henüz kayıt yok</li>"}</ul>
     ${s.failed_prints ? `<p class="err">${s.failed_prints} başarısız baskı işi var.</p>` : ""}</div></div>`;
+  dashPro($("#dpro"));
 }
 
 /* ---------------- liste ---------------- */
@@ -159,6 +180,7 @@ async function assetList(v, p) {
       <select id="ar" style="max-width:140px"><option value="0">Kullanımda</option><option value="1" ${p.archived === "1" ? "selected" : ""}>Arşiv</option><option value="all" ${p.archived === "all" ? "selected" : ""}>Tümü</option></select>
       <span class="sp"></span><span class="muted small" id="selc"></span>
       ${can("print") ? `<button class="btn" id="bprint" disabled>▦ Etiket</button>` : ""}
+      <span id="bulk"></span>
       ${can("export") ? `<button class="btn" id="bexp">⇩ Excel</button>` : ""}</div>
     <div class="tw"><table><thead><tr><th><input type="checkbox" id="all"></th>${th("asset_code", "Envanter No")}${cols.map(f => th(f.key, f.label)).join("")}${th("status", "Durum")}</tr></thead>
     <tbody>${res.items.map(a => `<tr class="cl" data-id="${a.id}"><td><input type="checkbox" class="ck" value="${a.id}" ${S.sel.has(a.id) ? "checked" : ""}></td>
@@ -167,7 +189,7 @@ async function assetList(v, p) {
     <div class="pager"><span class="muted">${res.total.toLocaleString("tr-TR")} kayıt · Sayfa ${p.page}/${pages}</span>
       <button class="btn s" id="prev" ${p.page <= 1 ? "disabled" : ""}>‹</button><button class="btn s" id="next" ${p.page >= pages ? "disabled" : ""}>›</button>
       <select id="sz" style="width:auto">${[25, 50, 100, 250].map(n => `<option ${+p.size === n ? "selected" : ""}>${n}</option>`).join("")}</select></div></div>`;
-  const updSel = () => { $("#selc").textContent = S.sel.size ? `${S.sel.size} seçili` : ""; if ($("#bprint")) $("#bprint").disabled = !S.sel.size; };
+  const updSel = () => { $("#selc").textContent = S.sel.size ? `${S.sel.size} seçili` : ""; if ($("#bprint")) $("#bprint").disabled = !S.sel.size; bulkActions($("#bulk"), [...S.sel]); };
   updSel();
   let t; $("#q").oninput = e => { clearTimeout(t); t = setTimeout(() => setp({q: e.target.value}), 350); };
   $("#q").focus(); $("#q").setSelectionRange(p.q.length, p.q.length);
@@ -194,12 +216,12 @@ function input(f, val) {
     return `<select ${n}>${f.key === "status" ? "" : "<option value=''></option>"}${o.map(x => `<option ${x === val ? "selected" : ""}>${esc(x)}</option>`).join("")}</select>`; }
   return `<input ${n} value="${v}" ${f.type === "mac" ? 'placeholder="AA:BB:CC:DD:EE:FF"' : ""} ${f.type === "text" ? `list="dl_${f.key}"` : ""} ${f.key === "asset_code" ? "required" : ""}>`;
 }
-async function assetForm(v, a) {
+async function assetForm(v, a, pre = {}) {
   const isNew = !a;
   const textF = S.fields.filter(f => f.type === "text" && !f.system && f.show_list);
   const lists = await Promise.all(textF.map(f => api("/api/values/" + f.key).catch(() => [])));
   v.innerHTML = `<h1>${isNew ? "Yeni Cihaz" : "Düzenle: " + esc(a.asset_code)}</h1><form class="card" id="af"><div class="grid g2">
-    ${S.fields.map(f => `<label class="f" ${f.type === "longtext" ? 'style="grid-column:1/-1"' : ""}><span>${esc(f.label)}${f.required ? " *" : ""}</span>${input(f, a ? fv(a, f) : (f.key === "status" ? "aktif" : ""))}<div class="err" data-e="${f.key}"></div></label>`).join("")}
+    ${S.fields.map(f => `<label class="f" ${f.type === "longtext" ? 'style="grid-column:1/-1"' : ""}><span>${esc(f.label)}${f.required ? " *" : ""}</span>${input(f, a ? fv(a, f) : (pre[f.key] ?? (f.key === "status" ? "aktif" : "")))}<div class="err" data-e="${f.key}"></div></label>`).join("")}
     </div>${textF.map((f, i) => `<datalist id="dl_${f.key}">${lists[i].map(x => `<option value="${esc(x)}">`).join("")}</datalist>`).join("")}
     <div class="row"><button class="btn p">${isNew ? "Kaydet" : "Değişiklikleri kaydet"}</button>
     ${isNew ? `<label class="row small"><input type="checkbox" id="again"> Kaydettikten sonra yeni kayda devam et</label>` : ""}
@@ -220,7 +242,8 @@ async function assetForm(v, a) {
 }
 
 /* ---------------- detay ---------------- */
-const ACT = {create: "Oluşturuldu", update: "Güncellendi", import: "Excel'den", archive: "Arşivlendi", restore: "Geri alındı", label_print: "Etiket basıldı", not: "Not", bakim: "Bakım", devir: "Devir/Teslim", ariza: "Arıza"};
+const ACT = {create: "Oluşturuldu", update: "Güncellendi", import: "Excel'den", archive: "Arşivlendi", restore: "Geri alındı", label_print: "Etiket basıldı", not: "Not", bakim: "Bakım", devir: "Devir/Teslim", ariza: "Arıza bildirimi",
+  ariza_cozuldu: "Arıza çözüldü", zimmet: "Zimmet", zimmet_iade: "Zimmet iadesi", sarf: "Sarf malzeme", sayim: "Sayım", count: "Sayımda yer güncellendi", agent: "Ajan güncellemesi", hurda: "Hurdaya ayrıldı"};
 async function assetDetail(v, id, edit) {
   const a = await api("/api/assets/" + id);
   if (edit) return assetForm(v, a);
@@ -230,14 +253,16 @@ async function assetDetail(v, id, edit) {
     ${can("asset.write") ? `<a class="btn" href="#/asset/${id}?edit=1">✎ Düzenle</a>` : ""}
     ${can("print") ? `<a class="btn" href="#/labels?ids=${id}">▦ Etiket bas</a>` : ""}
     ${can("asset.archive") ? `<button class="btn ${a.archived ? "" : "d"}" id="arch">${a.archived ? "Arşivden çıkar" : "Arşivle"}</button>` : ""}</div>
-    <div class="grid g2"><div class="card"><h2>Bilgiler</h2><dl class="kv">${S.fields.map(f => `<dt>${esc(f.label)}</dt><dd>${esc(fv(a, f) || "—")}</dd>`).join("")}
+    <div class="row no-print" id="dacts" style="margin:-6px 0 14px"></div>
+    <div class="grid g2"><div class="card"><h2>Bilgiler</h2><dl class="kv">${S.fields.filter(f => f.show_list || fv(a, f)).map(f => `<dt>${esc(f.label)}</dt><dd>${esc(fv(a, f) || "—")}</dd>`).join("")}
       <dt>Oluşturma</dt><dd>${fmtDate(a.created_at)} · ${esc(a.created_by || "")}</dd><dt>Son güncelleme</dt><dd>${fmtDate(a.updated_at)} · ${esc(a.updated_by || "")}</dd></dl></div>
     <div><div class="card"><h2>Etiket</h2><img class="lbl-prev" src="/api/labels/preview/${id}.png?t=${Date.now()}" alt="etiket">
-      <p class="small muted">QR bağlantısı: <a href="${esc(a.qr_url)}" target="_blank" class="mono">${esc(a.qr_url)}</a></p></div>
+      <p class="small muted">QR bağlantısı: <a href="${esc(a.qr_url)}" target="_blank" class="mono">${esc(a.qr_url)}</a></p></div><div id="dx"></div>
     <div class="card"><h2>Geçmiş</h2>
       ${can("asset.write") ? `<form id="ev" class="row" style="margin-bottom:10px"><select name="action" style="max-width:150px"><option value="not">Not</option><option value="bakim">Bakım</option><option value="ariza">Arıza</option><option value="devir">Devir/Teslim</option></select><input name="note" placeholder="Not ekle…" required style="flex:1"><button class="btn">Ekle</button></form>` : ""}
       <ul class="tl">${a.events.map(e => `<li><b>${esc(ACT[e.action] || e.action)}</b> <span class="small muted">${fmtDate(e.at)} · ${esc(e.user || "")}</span>
         ${e.note ? `<div>${esc(e.note)}</div>` : ""}${e.action === "update" || e.action === "import" ? `<div class="small">${chg(e.changes)}</div>` : ""}</li>`).join("")}</ul></div></div></div>`;
+  detailPro(a);
   if ($("#arch")) $("#arch").onclick = async () => {
     const note = a.archived ? null : prompt("Arşivleme nedeni (isteğe bağlı):");
     if (note === null && !a.archived) return;
@@ -400,23 +425,29 @@ async function fieldsPage(v) {
 /* ---------------- kullanıcılar ---------------- */
 async function usersPage(v) {
   const us = await api("/api/users"), R = S.state.roles;
-  v.innerHTML = `<h1>Kullanıcılar</h1><div class="card"><table><thead><tr><th>Kullanıcı</th><th>Ad soyad</th><th>Rol</th><th>Son giriş</th><th>Aktif</th><th></th></tr></thead><tbody>
+  v.innerHTML = `<h1>Kullanıcılar</h1><div class="card"><table><thead><tr><th>Kullanıcı</th><th>Ad soyad</th><th>Rol</th><th>Birim(ler) <span class="small muted">(temsilci için)</span></th><th>Kaynak</th><th>Son giriş</th><th>Aktif</th><th></th></tr></thead><tbody>
     ${us.map(u => `<tr><td><b>${esc(u.username)}</b></td><td>${esc(u.full_name || "")}</td>
       <td><select data-u="${u.id}" data-p="role">${Object.entries(R).map(([k, l]) => `<option value="${k}" ${u.role === k ? "selected" : ""}>${l}</option>`).join("")}</select></td>
+      <td><input data-u="${u.id}" data-p="units" value="${esc(u.units.join(", "))}" placeholder="ör. Acil Servis" style="min-width:160px"></td>
+      <td class="small">${u.source === "ldap" ? "Active Directory" : "Yerel"}</td>
       <td class="small">${fmtDate(u.last_login)}</td><td><input type="checkbox" data-u="${u.id}" data-p="active" ${u.active ? "checked" : ""}></td>
-      <td><button class="btn s" data-pw="${u.id}">Parola sıfırla</button></td></tr>`).join("")}</tbody></table></div>
+      <td>${u.source === "local" ? `<button class="btn s" data-pw="${u.id}">Parola sıfırla</button>` : ""}</td></tr>`).join("")}</tbody></table></div>
     <form class="card" id="nu"><h2>Yeni kullanıcı</h2><div class="grid g4"><input name="username" placeholder="Kullanıcı adı" required><input name="full_name" placeholder="Ad soyad">
       <input name="password" type="password" placeholder="Parola (≥8)" required><select name="role">${Object.entries(R).map(([k, l]) => `<option value="${k}" ${k === "viewer" ? "selected" : ""}>${l}</option>`).join("")}</select></div>
-      <button class="btn p" style="margin-top:12px">Ekle</button></form>
-    <div class="card small muted">Roller: <b>Sistem Yöneticisi</b> her şey · <b>BİM Yöneticisi</b> envanter, içe aktarma, alanlar, etiket şablonu · <b>Envanter Operatörü</b> ekle/düzenle, etiket bas · <b>Denetçi</b> okuma ve denetim kaydı · <b>Görüntüleyici</b> yalnızca okuma</div>`;
+      <label class="f" style="margin-top:10px"><span>Birim(ler) — yalnızca Birim Envanter Temsilcisi için (virgülle)</span><input name="units" placeholder="Acil Servis, Poliklinik"></label>
+      <button class="btn p">Ekle</button></form>
+    <div class="card small muted">Roller: <b>Sistem Yöneticisi</b> her şey · <b>BİM Yöneticisi</b> envanter, içe aktarma, alanlar, etiket şablonu · <b>Envanter Operatörü</b> ekle/düzenle, etiket bas · <b>Denetçi</b> okuma ve denetim kaydı · <b>Görüntüleyici</b> yalnızca okuma · <b>Birim Envanter Temsilcisi</b> yalnızca kendi birim(ler)inin cihazlarını görür, sayım yapar, arıza bildirir</div>`;
   $$("[data-u]").forEach(el => el.onchange = async () => {
-    try { await api("/api/users/" + el.dataset.u, {method: "PATCH", body: {[el.dataset.p]: el.type === "checkbox" ? el.checked : el.value}}); toast("Kaydedildi"); }
+    let val = el.type === "checkbox" ? el.checked : el.value;
+    if (el.dataset.p === "units") val = val.split(",").map(x => x.trim()).filter(Boolean);
+    try { await api("/api/users/" + el.dataset.u, {method: "PATCH", body: {[el.dataset.p]: val}}); toast("Kaydedildi"); }
     catch (e) { fail(e); route(); }
   });
   $$("[data-pw]").forEach(b => b.onclick = async () => { const p = prompt("Yeni parola (en az 8 karakter):"); if (!p) return;
     try { await api("/api/users/" + b.dataset.pw, {method: "PATCH", body: {password: p}}); toast("Parola değiştirildi"); } catch (e) { fail(e); } });
   $("#nu").onsubmit = async e => { e.preventDefault();
-    try { await api("/api/users", {method: "POST", body: Object.fromEntries(new FormData(e.target))}); route(); } catch (err) { fail(err); } };
+    const b = Object.fromEntries(new FormData(e.target)); b.units = (b.units || "").split(",").map(x => x.trim()).filter(Boolean);
+    try { await api("/api/users", {method: "POST", body: b}); route(); } catch (err) { fail(err); } };
 }
 
 /* ---------------- denetim ---------------- */
@@ -448,9 +479,9 @@ async function settingsPage(v) {
     <form class="card" id="pw"><h2>Parolamı değiştir</h2><label class="f"><span>Mevcut parola</span><input name="old_password" type="password" required></label>
       <label class="f"><span>Yeni parola</span><input name="new_password" type="password" minlength="8" required></label><button class="btn">Değiştir</button></form></div>
     <div><div class="card"><h2>Güncelleme</h2><p>Sürüm <b>${esc(S.state.app.version)}</b></p><div id="upd"></div><button class="btn p" id="chk">Güncellemeleri denetle</button></div>
-    <div class="card"><h2>Lisans</h2><dl class="kv"><dt>Sürüm türü</dt><dd>${esc(lic.edition)}</dd><dt>Durum</dt><dd>${lic.valid ? "Geçerli" : "Geçersiz"}</dd><dt>Makine kimliği</dt><dd class="mono">${esc(lic.machine_id)}</dd></dl></div>
     ${admin ? `<div class="card"><h2>Yedekleme</h2><p class="small muted">Veri klasörü: <span class="mono">${esc(s.data_dir)}</span><br>Açılışta ve 24 saatte bir otomatik yedek alınır. Yedekleri ayrı bir diske/NAS'a da kopyalayın.</p>
-      <button class="btn" id="bkn">Şimdi yedekle</button><ul class="tl" style="margin-top:10px;max-height:240px;overflow:auto">${bk.map(b => `<li><a href="/api/backups/${encodeURIComponent(b.name)}">${esc(b.name)}</a> <span class="small muted">${(b.size / 1024).toFixed(0)} KB</span></li>`).join("")}</ul></div>` : ""}</div></div>`;
+      <button class="btn" id="bkn">Şimdi yedekle</button><ul class="tl" style="margin-top:10px;max-height:240px;overflow:auto">${bk.map(b => `<li><a href="/api/backups/${encodeURIComponent(b.name)}">${esc(b.name)}</a> <span class="small muted">${(b.size / 1024).toFixed(0)} KB</span></li>`).join("")}</ul></div>` : ""}</div></div><div id="spro"></div>`;
+  settingsPro($("#spro"), s);
   if (admin) {
     $("#sf").onsubmit = async e => { e.preventDefault(); const b = Object.fromEntries(new FormData(e.target));
       b.import_ignore_headers = b.import_ignore_headers.split(",").map(x => x.trim()).filter(Boolean); b.backup_keep = +b.backup_keep;
@@ -475,4 +506,4 @@ async function settingsPage(v) {
   };
 }
 
-boot().catch(e => { document.body.innerHTML = `<p style="padding:20px">Sunucuya bağlanılamadı: ${esc(e.message)}</p>`; });
+

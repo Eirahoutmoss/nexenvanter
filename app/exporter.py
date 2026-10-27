@@ -30,6 +30,27 @@ def _book(headers: list[str], rows, widths=None) -> bytes:
     return bio.getvalue()
 
 
+def book_multi(sheets: dict) -> bytes:
+    """{sayfa_adı: (başlıklar, satırlar)} → xlsx."""
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    for title, (headers, rows) in sheets.items():
+        ws = wb.create_sheet(title[:31])
+        ws.append(headers)
+        for i, _ in enumerate(headers, 1):
+            c = ws.cell(row=1, column=i)
+            c.fill, c.font = _HFILL, _HFONT
+            ws.column_dimensions[get_column_letter(i)].width = 18
+        for r in rows:
+            ws.append([v if not isinstance(v, (dict, list)) else str(v) for v in r])
+        ws.freeze_panes = "A2"
+        if rows:
+            ws.auto_filter.ref = ws.dimensions
+    bio = io.BytesIO()
+    wb.save(bio)
+    return bio.getvalue()
+
+
 def export_assets(**query) -> bytes:
     flds = F.all_fields()
     headers = [f["label"] for f in flds] + ["Arşivde", "Oluşturma", "Güncelleme", "QR Kimliği"]

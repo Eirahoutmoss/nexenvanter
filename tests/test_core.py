@@ -86,23 +86,23 @@ def test_import_real_file(client):
 
 
 def test_import_new_column_creates_field(client):
-    raw = _xlsx([["BARKOD NO", "MARKA MODEL", "IP ADRESİ", "GARANTİ BİTİŞ"],
+    raw = _xlsx([["BARKOD NO", "MARKA MODEL", "ODA NO", "KURULUM TARİHİ"],
                  ["2000001", "HP", "10.0.0.5", "01.01.2027"], ["2000001", "HP", "", ""], ["", "boş barkod", "", ""]])
     an = client.post("/api/import/upload", files={"file": ("yeni.xlsx", raw)}, headers=H).json()
     mapping = {str(c["index"]): c["suggestion"] for c in an["columns"]}
     assert mapping["2"] == "__new__" and mapping["3"] == "__new__"
     res = client.post("/api/import/run", json={
         "token": an["token"], "sheet": an["sheet"], "header_row": an["header_row"], "mapping": mapping,
-        "new_fields": {"2": {"label": "IP Adresi"}, "3": {"label": "Garanti Bitiş", "type": "date"}},
+        "new_fields": {"2": {"label": "Oda No"}, "3": {"label": "Kurulum Tarihi", "type": "date"}},
         "dry_run": False}, headers=H).json()
     st = res["stats"]
-    assert st["inserted"] == 1 and st["errors"] == 2 and st["new_fields"] == ["IP Adresi", "Garanti Bitiş"]
+    assert st["inserted"] == 1 and st["errors"] == 2 and st["new_fields"] == ["Oda No", "Kurulum Tarihi"]
     a = client.get("/api/assets/by-code/2000001").json()
-    assert a["data"]["ip_adresi"] == "10.0.0.5" and a["data"]["garanti_bitis"] == "2027-01-01"
+    assert a["data"]["oda_no"] == "10.0.0.5" and a["data"]["kurulum_tarihi"] == "2027-01-01"
     # sonraki dosyada aynı başlık artık otomatik eşleşir
-    an2 = client.post("/api/import/upload", files={"file": ("y2.xlsx", _xlsx([["Barkod", "IP Adresi"], ["3", "x"]]))},
+    an2 = client.post("/api/import/upload", files={"file": ("y2.xlsx", _xlsx([["Barkod", "Oda No"], ["3", "x"]]))},
                       headers=H).json()
-    assert an2["columns"][1]["suggestion"] == "ip_adresi"
+    assert an2["columns"][1]["suggestion"] == "oda_no"
 
 
 def test_labels_and_export(client):

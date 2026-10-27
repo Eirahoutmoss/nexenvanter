@@ -72,5 +72,7 @@ def apply(shutdown) -> dict:
     def stop():
         time.sleep(1.0)
         shutdown()
+        time.sleep(4)
+        os._exit(0)  # tepsi modunda ana iş parçacığı simgede bekler; süreci kesin sonlandır
     threading.Thread(target=stop, daemon=True).start()
     return {"ok": True, "message": f"{info['latest']} kuruluyor; program yeniden başlatılacak."}

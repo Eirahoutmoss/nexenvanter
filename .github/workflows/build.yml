@@ -30,7 +30,7 @@ jobs:
       - name: Exe duman testi
         shell: pwsh
         run: |
-          $p = Start-Process dist\NexEnvanter.exe -ArgumentList "--no-browser","--port","8799","--data","$env:RUNNER_TEMP\nxdata" -PassThru
+          $p = Start-Process dist\NexEnvanter.exe -ArgumentList "--headless","--port","8799","--data","$env:RUNNER_TEMP\nxdata" -PassThru
           Start-Sleep -Seconds 8
           $r = Invoke-RestMethod http://127.0.0.1:8799/api/state
           Stop-Process -Id $p.Id -Force

@@ -7,3 +7,9 @@ dl{margin:12px 18px;display:grid;grid-template-columns:auto 1fr;gap:10px 16px}dt
 .btn{display:block;margin:18px;padding:14px;border-radius:12px;background:#1463ff;color:#fff;text-align:center;text-decoration:none;font-weight:600}
 .muted{color:#5a6888;margin:8px 18px 20px}footer{margin-top:14px;color:#8a96b0;font-size:12px}
 @media (prefers-color-scheme:dark){body{background:#0b1020;color:#e6ebf7}.card{background:#141b30}dt{color:#9aa6c3}}
+.btn.sec{background:#eef2f9;color:#1463ff}.btn.warn{background:#e6930a;width:calc(100% - 36px);border:0;font:inherit;font-weight:600;cursor:pointer}
+.btn.ok{background:#13a05a;width:calc(100% - 36px);border:0;font:inherit;font-weight:600;cursor:pointer}button.btn{display:block;width:calc(100% - 36px);border:0;font:inherit;font-weight:600;cursor:pointer}
+#tmsg,#cmsg{margin:0}.tform{margin:0 18px}.tform label{display:block;font-size:13px;color:#5a6888;margin-bottom:10px}
+.tform input,.tform select,.tform textarea{display:block;width:100%;margin-top:4px;padding:11px;border:1px solid #d5dbe8;border-radius:10px;font:inherit;font-size:16px}
+.tform .btn{width:100%;margin:6px 0 4px}.state a{color:inherit;font-weight:700}
+@media (prefers-color-scheme:dark){.tform input,.tform select,.tform textarea{background:#0b1020;color:#e6ebf7;border-color:#26304a}.btn.sec{background:#1d2742}}

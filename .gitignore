@@ -12,3 +12,6 @@ data/
 .pytest_cache/
 .vscode/
 .idea/
+
+*.key
+license.nxl

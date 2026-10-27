@@ -39,6 +39,18 @@ tbody tr:hover{background:color-mix(in srgb,var(--pri) 5%,transparent)}tr.cl{cur
 .pager{display:flex;gap:8px;align-items:center;justify-content:flex-end;margin-top:12px}
 .err{color:var(--bad);font-size:12px;margin-top:3px}
 .menu-btn{display:none}
+.nav-h{font-size:11px;text-transform:uppercase;letter-spacing:.08em;opacity:.5;padding:14px 12px 4px}
+.nav a .bdg{margin-left:auto;background:var(--bad);color:#fff;border-radius:10px;font-size:11px;padding:1px 7px;font-weight:700}
+.nav a .bdg[hidden]{display:none}.nav{display:flex;flex-direction:column}
+a.card{color:inherit;display:block}a.card:hover{border-color:var(--pri)}a.card.stat{display:flex}
+.modal{position:fixed;inset:0;background:rgba(5,10,25,.55);display:grid;place-items:center;z-index:40;padding:16px;overflow:auto}
+.mbox{width:min(720px,100%);max-height:calc(100vh - 32px);overflow:auto;margin:0}
+canvas.sig{width:100%;height:120px;border:1px dashed var(--line);border-radius:10px;background:#fff;touch-action:none}
+.pill.t-yeni{background:#fde6e6;color:#a32020}.pill.t-atandı,.pill.t-işlemde{background:#e8eefc;color:#2f4fa8}.pill.t-beklemede{background:#fff2d9;color:#8a5a00}
+.pill.t-çözüldü,.pill.t-kapalı{background:#e3f6ec;color:#137a43}.pill.p-acil,.pill.p-yüksek{background:#d93636;color:#fff}.pill.p-düşük{background:#eceff5;color:#4a5570}
+.pill.ok{background:#e3f6ec;color:#137a43}
+pre.code{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;white-space:pre-wrap;word-break:break-all}
+.steps a{color:inherit}details summary{cursor:pointer}
 @media (max-width:900px){.shell{grid-template-columns:1fr}.side{position:fixed;left:-260px;width:240px;z-index:20;transition:left .2s}.side.open{left:0}
 .menu-btn{display:inline-flex}.g4{grid-template-columns:1fr 1fr}.g2,.g3{grid-template-columns:1fr}.main{padding:14px}.kv{grid-template-columns:1fr}}
 @media print{.side,.top,.no-print{display:none!important}.shell{display:block}}

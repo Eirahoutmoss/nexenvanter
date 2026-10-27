@@ -71,6 +71,11 @@ def get_by_code(code) -> dict | None:
 
 
 def create(payload: dict, user: str, source_import=None, t=None) -> dict:
+    from . import license
+    try:
+        license.check_limit("assets", db.conn().execute("SELECT COUNT(*) FROM assets WHERE archived=0").fetchone()[0])
+    except PermissionError as e:
+        raise AssetError("LICENSE_LIMIT", str(e), 402)
     code, status, data, errors = validate(payload)
     if errors:
         raise AssetError("VALIDATION_ERROR", "Doğrulama hatası", 422, {"fields": errors})
@@ -163,10 +168,18 @@ def _col(key: str, fmap: dict) -> str:
     raise AssetError("BAD_FIELD", f"Bilinmeyen alan: {key}")
 
 
+def _scope_sql(locations, where, args):
+    if locations is not None:
+        locs = sorted({fold(x) for x in locations})
+        where.append(f"fold(json_extract(data,'$.location_name')) IN ({','.join('?' * len(locs))})")
+        args += locs
+
+
 def query(q="", status=None, archived="0", filters=None, sort="updated_at", direction="desc", page=1, size=50,
-          ids=None):
+          ids=None, locations=None):
     fmap = F.by_key()
     where, args = [], []
+    _scope_sql(locations, where, args)
     if archived in ("0", "1"):
         where.append("archived=?")
         args.append(int(archived))
@@ -199,24 +212,30 @@ def query(q="", status=None, archived="0", filters=None, sort="updated_at", dire
     return {"total": total, "page": page, "size": size, "items": [_out(r) for r in rows]}
 
 
-def distinct_values(key: str, limit=500) -> list[str]:
+def distinct_values(key: str, limit=500, locations=None) -> list[str]:
     col = _col(key, F.by_key())
-    rows = db.conn().execute(f"SELECT {col} v, COUNT(*) n FROM assets WHERE archived=0 AND {col} IS NOT NULL "
-                             f"GROUP BY v ORDER BY n DESC LIMIT ?", (limit,))
+    where, args = [], []
+    _scope_sql(locations, where, args)
+    w = "".join(" AND " + x for x in where)
+    rows = db.conn().execute(f"SELECT {col} v, COUNT(*) n FROM assets WHERE archived=0 AND {col} IS NOT NULL{w} "
+                             f"GROUP BY v ORDER BY n DESC LIMIT ?", (*args, limit))
     return [r[0] for r in rows]
 
 
-def stats() -> dict:
+def stats(locations=None) -> dict:
     c = db.conn()
-    by_status = {r[0]: r[1] for r in c.execute("SELECT status, COUNT(*) FROM assets WHERE archived=0 GROUP BY status")}
+    where, a = [], []
+    _scope_sql(locations, where, a)
+    w = "".join(" AND " + x for x in where)
+    by_status = {r[0]: r[1] for r in c.execute(f"SELECT status, COUNT(*) FROM assets WHERE archived=0{w} GROUP BY status", a)}
     by_loc = [{"name": r[0] or "(Belirtilmemiş)", "count": r[1]} for r in c.execute(
-        "SELECT json_extract(data,'$.location_name') l, COUNT(*) FROM assets WHERE archived=0 GROUP BY l ORDER BY 2 DESC LIMIT 12")]
+        f"SELECT json_extract(data,'$.location_name') l, COUNT(*) FROM assets WHERE archived=0{w} GROUP BY l ORDER BY 2 DESC LIMIT 12", a)]
     by_hw = [{"name": r[0] or "(Belirtilmemiş)", "count": r[1]} for r in c.execute(
-        "SELECT json_extract(data,'$.hardware_info') h, COUNT(*) FROM assets WHERE archived=0 GROUP BY h ORDER BY 2 DESC LIMIT 12")]
-    recent = [_out(r) for r in c.execute("SELECT * FROM assets ORDER BY updated_at DESC, id DESC LIMIT 8")]
+        f"SELECT json_extract(data,'$.hardware_info') h, COUNT(*) FROM assets WHERE archived=0{w} GROUP BY h ORDER BY 2 DESC LIMIT 12", a)]
+    recent = [_out(r) for r in c.execute(f"SELECT * FROM assets WHERE 1=1{w} ORDER BY updated_at DESC, id DESC LIMIT 8", a)]
     return {
         "total": sum(by_status.values()),
-        "archived": c.execute("SELECT COUNT(*) FROM assets WHERE archived=1").fetchone()[0],
+        "archived": c.execute(f"SELECT COUNT(*) FROM assets WHERE archived=1{w}", a).fetchone()[0],
         "by_status": by_status, "by_location": by_loc, "by_hardware": by_hw, "recent": recent,
         "failed_prints": c.execute("SELECT COUNT(*) FROM print_jobs WHERE status='failed'").fetchone()[0],
     }
