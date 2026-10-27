@@ -12,7 +12,13 @@ import urllib.request
 import webbrowser
 
 if sys.stdout is None:  # pencereli (--noconsole) derlemede
-    sys.stdout = sys.stderr = open(os.devnull, "w")
+    sys.stdout = sys.stderr = open(os.devnull, "w", encoding="utf-8")
+else:
+    for _s in (sys.stdout, sys.stderr):
+        try:
+            _s.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
 
 log = logging.getLogger("nexenvanter")
 TASK_NAME = "NexEnvanter"

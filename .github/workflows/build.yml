@@ -31,8 +31,9 @@ jobs:
         shell: pwsh
         run: |
           $p = Start-Process dist\NexEnvanter.exe -ArgumentList "--headless","--port","8799","--data","$env:RUNNER_TEMP\nxdata" -PassThru
-          Start-Sleep -Seconds 8
-          $r = Invoke-RestMethod http://127.0.0.1:8799/api/state
+          $r = $null
+          for ($i = 0; $i -lt 30 -and -not $r; $i++) { Start-Sleep -Seconds 2; try { $r = Invoke-RestMethod http://127.0.0.1:8799/api/state } catch {} }
+          if (-not $r) { Get-Content "$env:RUNNER_TEMP\nxdata\logs\nexenvanter.log" -ErrorAction SilentlyContinue; throw "Exe yanıt vermedi" }
           Stop-Process -Id $p.Id -Force
           if (-not $r.setup_needed) { throw "Beklenmeyen durum" }
           Write-Host "Sürüm: $($r.app.version)"
