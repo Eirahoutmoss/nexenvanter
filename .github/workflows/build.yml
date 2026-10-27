@@ -1,0 +1,48 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows-exe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest -q
+      - name: Simge ve sürüm bilgisi
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then python build/make_assets.py "$GITHUB_REF_NAME"; else python build/make_assets.py; fi
+      - run: pyinstaller NexEnvanter.spec --noconfirm --clean
+      - name: Exe duman testi
+        shell: pwsh
+        run: |
+          $p = Start-Process dist\NexEnvanter.exe -ArgumentList "--no-browser","--port","8799","--data","$env:RUNNER_TEMP\nxdata" -PassThru
+          Start-Sleep -Seconds 8
+          $r = Invoke-RestMethod http://127.0.0.1:8799/api/state
+          Stop-Process -Id $p.Id -Force
+          if (-not $r.setup_needed) { throw "Beklenmeyen durum" }
+          Write-Host "Sürüm: $($r.app.version)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NexEnvanter-exe
+          path: dist/NexEnvanter.exe
+      - name: GitHub sürümü (etiket)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/NexEnvanter.exe
+          generate_release_notes: true

@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+build/out/
+build/NexEnvanter/
+dist/
+data/
+*.db
+*.db-wal
+*.db-shm
+.pytest_cache/
+.vscode/
+.idea/
