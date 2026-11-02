@@ -225,6 +225,23 @@ Hata biçimi: `{"error": {"code": "...", "message": "..."}}` — `VALIDATION_ERR
 | **80×40 mm / kağıt boyutu** | Yazıcı profili (yazıcı başına): özel kağıt (DEVMODE), sürücü kağıdı veya sürücü formu; şerit genişliği; döndürme (otomatik/0/90/180/270); sığdır/birebir; X/Y kaydırma. “Sürücüyü denetle” basılabilir alanı ve ölçeği gösterir, uygun kağıdı önerir; “Windows'a 80×40 kağıt ekle” (AddForm); kalibrasyon etiketi (cetvel + çerçeve). **Brother PT-P900Wc en fazla 36 mm şerit alır, basılabilir yükseklik ~32 mm**: 80×40 bu yazıcıda ancak ~%80 küçültülerek basılır; birebir 40 mm için daha geniş ortam destekleyen yazıcı gerekir |
 | **Ek** | Code128 barkod şeridi (el tipi okuyucular için), hazır ölçüler (80×40, 80×36, 70×36, 60×24, 62×29, 100×50), kalibrasyon PDF |
 
+## 13c. v0.4 eklemeleri
+
+| Konu | Çözüm |
+|---|---|
+| **Durum panosu (NOC)** | Hizmet noktaları ve kritik cihazlar canlı yeşil/kırmızı; açık alarm > arıza > ağ durumu sırasıyla renk. 30 sn'de yenilenir. Nöbetçi bir bakışta görür |
+| **Hizmet noktaları** | "Acil kayıt masası 3" gibi noktalar; PC+yazıcı+ekran tek kart. Arıza "hangi masa çalışmıyor" düzeyinde (`service_points`, `service_point_items`) |
+| **Alarmlar** | Donanım/seri değişimi (ajan karşılaştırması), N gündür çevrimdışı, toner/yazıcı hatası → `alerts`; görüldü/kapat/arızaya çevir. Panoda ve rozetlerde |
+| **Onay kuyruğu** | Tarama/ajan yeni cihazı doğrudan değil `pending_devices`'e düşürür; yetkili onaylar (tür seçip envantere ekler) ya da yok sayar. Sahte/misafir cihaz süzülür |
+| **Yedek havuzu** | "yedek" durumundaki cihazlar havuz; sahaya ver (yerine geçtiği arızalı cihazla), geri al (`spare_loans`). Panoda sayısı |
+| **Yazıcı SNMP** | Printer-MIB ile seri no, model, sayfa sayacı, toner/drum %'si, durum/hata. Sayaç geçmişinden birim bazlı baskı ve **maliyet raporu** (sayfa başı TL), "en çok basan 10 birim". Düşük toner → otomatik alarm (`printer_readings`) |
+| **Arıza analizi** | Birim/saat/gün/model/kategori dağılımı, tekrar eden sorun (aynı modelde aynı kategori 3+), sık çağrı açan kullanıcılar, ortalama çözüm süresi, BİM iş yükü. "Cihaz mı, eğitim mi" ayrımı için |
+| **Personel ayrılışı** | Zimmet ekranında "Personel ayrılışı": kişinin tüm aktif zimmetleri tek ekranda, tek belgeyle iade |
+| **QR sık sorunlar** | Bilgi bankası kaydı "herkese açık" işaretlenince, cihazın modeline uyanlar QR sayfasında kullanıcıya "Sık karşılaşılan sorunlar" olarak görünür. Basit çağrılar kullanıcıda çözülür |
+| **Kritik işaret** | Cihaz "kritik" işaretlenir (sunucu, acil yazıcısı, switch); panoda öne çıkar, çevrimdışı alarmı "kritik" olur |
+
+Yeni durum: **yedek**. Yeni roller yetkisi: discovery, alerts, spares, servicepoints, analytics.
+
 ## 14. Sonraki adımlar
 
 1. Lisanslı derleme: `tools/license_tool.py keygen` → `PUBLIC_KEY`, `ENFORCE=True`.

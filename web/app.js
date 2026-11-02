@@ -35,12 +35,15 @@ function download(url) { const a = document.createElement("a"); a.href = url; a.
 /* ---------------- yerleşim ---------------- */
 const NAV = [
   ["/", "⌂", "Ana Sayfa", "asset.read"], ["/assets", "▤", "Cihazlar", "asset.read"],
+  ["/noc", "◉", "Durum Panosu", "asset.read"], ["/alerts", "⬤", "Alarmlar", "alerts.read", "alerts_open"],
   ["-", "Operasyon"],
   ["/tickets", "⚠", "Arıza Kayıtları", "ticket.read", "tickets_new"], ["/counts", "✓", "Sayım", "count"],
   ["/assign", "✍", "Zimmet", "asset.read"], ["/maint", "🔧", "Bakım & Garanti", "asset.read", "maint_overdue"],
-  ["/stock", "▣", "Sarf Stok", "stock.read", "low_stock"], ["/kb", "✎", "Bilgi Bankası", "kb.read"],
+  ["/stock", "▣", "Sarf Stok", "stock.read", "low_stock"], ["/spares", "⇄", "Yedek Havuzu", "asset.read"],
+  ["/servicepoints", "◻", "Hizmet Noktaları", "servicepoints"], ["/kb", "✎", "Bilgi Bankası", "kb.read"],
   ["-", "Analiz"],
-  ["/network", "⇄", "Ağ & Ajan", "network"], ["/reports", "▥", "Raporlar", "reports"], ["/federation", "⌘", "Kurumlar", "federation"],
+  ["/pending", "⊕", "Onay Kuyruğu", "discovery", "pending"], ["/network", "⇄", "Ağ & Ajan", "network"],
+  ["/analytics", "▦", "Arıza Analizi", "analytics"], ["/reports", "▥", "Raporlar", "reports"], ["/federation", "⌘", "Kurumlar", "federation"],
   ["-", "Yönetim"],
   ["/import", "⇪", "Excel İşlemleri", "import"], ["/labels", "▦", "Etiket & Yazıcı", "print"], ["/catalog", "▧", "Türler & Kategoriler", "asset.read"],
   ["/fields", "☰", "Alanlar", "fields"], ["/users", "☺", "Kullanıcılar", "users"], ["/audit", "⌕", "Denetim Kaydı", "audit"], ["/settings", "⚙", "Ayarlar", "asset.read"],

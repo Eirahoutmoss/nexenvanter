@@ -21,6 +21,7 @@ def _out(r) -> dict:
     d["data"] = json.loads(d["data"])
     d.pop("search", None)
     d["archived"] = bool(d["archived"])
+    d["critical"] = bool(d.get("critical"))
     return d
 
 

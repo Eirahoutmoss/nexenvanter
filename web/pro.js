@@ -175,9 +175,19 @@ function detailPro(a) {
   if (can("assign")) acts.push(`<button class="btn" data-d="z">✍ ${a.assignment ? "Devret" : "Zimmetle"}</button>`);
   if (can("assign") && a.assignment) acts.push(`<button class="btn" data-d="i">↩ İade al</button>`);
   if (can("maint")) acts.push(`<button class="btn" data-d="m">🔧 Bakım planı</button>`);
+  const isPrinter = /yaz[ıi]c[ıi]/i.test((a.data.hardware_info || "") + (a.data.category || ""));
+  if (can("network") && isPrinter && a.data.ip_address) acts.push(`<button class="btn" data-d="p">🖨 SNMP sorgula</button>`);
+  if (can("asset.write")) acts.push(`<button class="btn ${a.critical ? "d" : ""}" data-d="c">${a.critical ? "★ Kritik (kaldır)" : "☆ Kritik işaretle"}</button>`);
   $("#dacts").innerHTML = acts.join("");
-  $$("[data-d]").forEach(b => b.onclick = () => ({t: () => ticketModal(a), z: () => assignModal([a.id]), i: () => returnModal([a.id]), m: () => maintModal([a.id])})[b.dataset.d]());
+  $$("[data-d]").forEach(b => b.onclick = () => ({t: () => ticketModal(a), z: () => assignModal([a.id]), i: () => returnModal([a.id]), m: () => maintModal([a.id]),
+    c: async () => { await api(`/api/assets/${a.id}/critical`, {method: "POST", body: {critical: !a.critical}}); route(); },
+    p: async () => { try { toast("Sorgulanıyor…"); await api(`/api/assets/${a.id}/printer-poll`, {method: "POST"}); toast("Güncellendi"); route(); } catch (e) { fail(e); } }})[b.dataset.d]());
   const sec = [];
+  if (a.alerts && a.alerts.length) sec.push(`<div class="card" style="border-color:var(--bad)"><h2>Açık alarmlar</h2><ul class="tl">${a.alerts.map(x => `<li>${esc(x.severity)}: ${esc(x.message)} <span class="small muted">${fmtDate(x.at)}</span></li>`).join("")}</ul></div>`);
+  if (a.service_point) sec.push(`<div class="card"><h2>Hizmet noktası</h2><p><a href="#/servicepoints?open=${a.service_point.id}"><b>${esc(a.service_point.name)}</b></a> <span class="small muted">${esc(a.service_point.location || "")}</span></p></div>`);
+  if (a.printer_reading) { const pr = a.printer_reading; sec.push(`<div class="card"><h2>Yazıcı durumu <span class="small muted">${fmtDate(pr.at)}</span></h2><p>Durum: <b>${esc(pr.status || "")}</b>${pr.pages != null ? ` · Sayaç: <b>${pr.pages}</b> sayfa` : ""}${(pr.errors || []).length ? ` · <span class="err">${pr.errors.map(esc).join(", ")}</span>` : ""}</p>
+    ${(pr.supplies || []).length ? `<div>${pr.supplies.map(s => `<div style="margin-bottom:6px"><div class="row small"><span>${esc(s.name)}</span><span class="sp"></span><b>${s.pct >= 0 ? "%" + s.pct : (s.pct === -3 ? "biraz" : "?")}</b></div>${s.pct >= 0 ? `<div class="bar"><i style="width:${s.pct}%;background:${s.pct <= 10 ? "var(--bad)" : s.pct <= 25 ? "var(--warn)" : "var(--pri)"}"></i></div>` : ""}</div>`).join("")}</div>` : ""}</div>`); }
+  if (a.spare_history && a.spare_history.length) sec.push(`<div class="card"><h2>Yedek hareketleri</h2><ul class="tl">${a.spare_history.map(l => `<li>${fmtDate(l.out_at)} → ${esc(l.to_unit || "")} ${esc(l.to_person || "")}${l.replacing_code ? " (yerine " + esc(l.replacing_code) + ")" : ""} ${l.back_at ? `<span class="small muted">· iade ${fmtDate(l.back_at)}</span>` : '<span class="pill aktif">sahada</span>'}</li>`).join("")}</ul></div>`);
   if (a.assignment) sec.push(`<div class="card"><h2>Zimmet</h2><p><b>${esc(a.assignment.holder_name)}</b> ${esc(a.assignment.holder_title || "")} ${a.assignment.holder_unit ? "— " + esc(a.assignment.holder_unit) : ""}<br>
     <span class="small muted">${fmtDate(a.assignment.started_at)} · <a href="/print/zimmet/${esc(a.assignment.doc_no)}" target="_blank">${esc(a.assignment.doc_no)}</a></span></p>
     ${a.assignments.length > 1 ? `<details><summary class="small">Zimmet geçmişi (${a.assignments.length})</summary><ul class="tl">${a.assignments.map(z => `<li>${esc(z.holder_name)} <span class="small muted">${fmtDate(z.started_at)} → ${fmtDate(z.ended_at) || "…"}</span></li>`).join("")}</ul></details>` : ""}</div>`);
@@ -193,9 +203,12 @@ async function dashPro(el) {
   if (!s || !el) return;
   const tile = (href, n, l, col, ok) => `<a class="card stat" href="#${href}"><div class="i" style="background:${col}22;color:${col}">${n}</div><div class="l">${l}</div></a>`;
   el.innerHTML = `<div class="grid g4">
+    ${can("alerts.read") ? tile("/alerts", s.alerts_open, "Açık alarm", s.alerts_open ? "#d93636" : "#13a05a") : ""}
+    ${can("discovery") && s.pending ? tile("/pending", s.pending, "Onay bekleyen cihaz", "#e6930a") : ""}
     ${can("ticket.read") ? tile("/tickets", s.tickets_open, `Açık arıza${s.tickets_new ? ` <b class="err">(${s.tickets_new} yeni)</b>` : ""}`, s.tickets_open ? "#d93636" : "#13a05a") : ""}
     ${tile("/maint", s.maint_overdue + s.warranty_soon, `Gecikmiş bakım ${s.maint_overdue} · garanti biten ${s.warranty_soon}`, s.maint_overdue ? "#e6930a" : "#13a05a")}
     ${can("stock.read") ? tile("/stock", s.low_stock, "Kritik sarf stoku", s.low_stock ? "#e6930a" : "#13a05a") : ""}
+    ${tile("/spares", s.spares, "Havuzdaki yedek", "#1463ff")}
     ${tile("/assign", s.assigned, `Zimmetli cihaz · açık sayım ${s.counts_open}`, "#1463ff")}</div>`;
 }
 
@@ -323,7 +336,7 @@ PRO["/count/:id"] = async (v, id, p) => {
 PRO["/assign"] = async (v, p) => {
   p = {q: "", active: "1", ...p};
   const r = await api("/api/assignments?" + qs(p));
-  v.innerHTML = `<div class="row"><h1>Zimmet</h1><span class="sp"></span>${can("assign") ? `<button class="btn p" id="na">＋ Yeni zimmet</button><button class="btn" id="ni">↩ İade al</button>` : ""}</div>
+  v.innerHTML = `<div class="row"><h1>Zimmet</h1><span class="sp"></span>${can("assign") ? `<button class="btn" id="off">⎋ Personel ayrılışı</button><button class="btn p" id="na">＋ Yeni zimmet</button><button class="btn" id="ni">↩ İade al</button>` : ""}</div>
     <div class="card"><div class="row" style="margin-bottom:10px"><input id="aq" placeholder="Kişi, birim, barkod, belge no" value="${esc(p.q)}" style="max-width:300px">
       <select id="aa" style="max-width:180px"><option value="1">Aktif zimmetler</option><option value="0" ${p.active === "0" ? "selected" : ""}>Tüm geçmiş</option></select><span class="sp"></span><span class="muted">${r.total} kayıt</span></div>
     <div class="tw"><table><thead><tr><th>Belge</th><th>Barkod</th><th>Cihaz</th><th>Zimmet alan</th><th>Birim</th><th>Başlangıç</th><th>Bitiş</th><th></th></tr></thead><tbody>
@@ -337,6 +350,21 @@ PRO["/assign"] = async (v, p) => {
   const pick = (title, then) => modal(title, `<label class="f"><span>Barkodlar (her satıra bir tane veya okuyucuyla art arda)</span><textarea name="codes" rows="5" required></textarea></label>`,
     async b => { const ids = await codesToIds(b.codes); setTimeout(() => then(ids), 50); }, "Devam");
   if ($("#na")) { $("#na").onclick = () => pick("Zimmetlenecek cihazlar", ids => assignModal(ids)); $("#ni").onclick = () => pick("İade edilecek cihazlar", ids => returnModal(ids)); }
+  if ($("#off")) $("#off").onclick = async () => {
+    const holders = await api("/api/holders");
+    const w = modal("Personel ayrılışı / birim değişikliği", `<p class="small muted">Ayrılan personeli seçin; üstündeki tüm cihazlar tek belgeyle iade alınır (devir tutanağı çıkar).</p>
+      <label class="f"><span>Personel</span><select name="h">${holders.map((h, i) => `<option value="${i}">${esc(h.holder_name)} — ${esc(h.holder_unit || "")} (${h.n} cihaz)</option>`).join("") || "<option>Aktif zimmet yok</option>"}</select></label><div id="hd"></div>`,
+      null);
+    const sel = $("[name=h]", w);
+    const show = async () => { const h = holders[+sel.value]; if (!h) return;
+      const list = await api("/api/assignments?" + qs({q: h.holder_name, active: "1", size: 200}));
+      const mine = list.items.filter(x => x.holder_name === h.holder_name && !x.ended_at);
+      $("#hd", w).innerHTML = `<div class="tw" style="max-height:260px"><table><thead><tr><th>Barkod</th><th>Cihaz</th><th>Belge</th></tr></thead><tbody>${mine.map(z => `<tr><td>${esc(z.asset_code)}</td><td class="small">${esc(z.brand_model || "")}</td><td class="small">${esc(z.doc_no)}</td></tr>`).join("")}</tbody></table></div>
+        <button type="button" class="btn p" id="offret" style="margin-top:10px">${mine.length} cihazı iade al</button>`;
+      $("#offret", w).onclick = () => { returnModal(mine.map(z => z.asset_id), () => { w.remove(); route(); }); };
+    };
+    if (holders.length) { sel.onchange = show; show(); }
+  };
 };
 
 /* ---------- bakım & garanti ---------- */
@@ -397,20 +425,21 @@ PRO["/stock/:id"] = async (v, id) => {
 const kbForm = (x = {}) => `<label class="f"><span>Başlık *</span><input name="title" value="${esc(x.title || "")}" required></label>
   <label class="f"><span>İçerik * (sorun, belirti, çözüm adımları)</span><textarea name="body" rows="10" required>${esc(x.body || "")}</textarea></label>
   <div class="grid g2"><label class="f"><span>İlgili model/donanım anahtar kelimeleri (virgülle)</span><input name="match" value="${esc(x.match || "")}" placeholder="M428, Esprimo"></label>
-  <label class="f"><span>Etiketler</span><input name="tags" value="${esc(x.tags || "")}"></label></div>`;
+  <label class="f"><span>Etiketler</span><input name="tags" value="${esc(x.tags || "")}"></label></div>
+  <label class="row"><input type="checkbox" name="public" ${x.public ? "checked" : ""}> Herkese açık — QR sayfasında "Sık karşılaşılan sorunlar" olarak kullanıcıya göster</label>`;
 PRO["/kb"] = async (v, p) => {
   const list = await api("/api/kb?" + qs({q: p.q || ""}));
   v.innerHTML = `<div class="row"><h1>Bilgi Bankası</h1><span class="sp"></span>${can("kb.write") ? `<button class="btn p" id="nk">＋ Yeni kayıt</button>` : ""}</div>
     <div class="card"><input id="kq" placeholder="Ara (model, belirti, çözüm…)" value="${esc(p.q || "")}" style="max-width:360px;margin-bottom:10px">
     <ul class="tl">${list.map(k => `<li><a href="#/kb/${k.id}"><b>${esc(k.title)}</b></a> <span class="small muted">${esc(k.match || "")} ${k.tags ? "· " + esc(k.tags) : ""}</span><div class="small muted">${fmtDate(k.updated_at)} · ${esc(k.updated_by || "")} · ${k.views} görüntülenme</div></li>`).join("") || "<li class=muted>Kayıt yok. Arıza çözerken “bilgi bankasına kaydet” ile de eklenir.</li>"}</ul></div>`;
   $("#kq").onchange = e => go("/kb?" + qs({q: e.target.value}));
-  if ($("#nk")) $("#nk").onclick = () => modal("Yeni bilgi bankası kaydı", kbForm(), async b => { const k = await api("/api/kb", {method: "POST", body: b}); go("/kb/" + k.id); });
+  if ($("#nk")) $("#nk").onclick = () => modal("Yeni bilgi bankası kaydı", kbForm(), async b => { b.public = !!b.public; const k = await api("/api/kb", {method: "POST", body: b}); go("/kb/" + k.id); });
 };
 PRO["/kb/:id"] = async (v, id) => {
   const k = await api("/api/kb/" + id);
   v.innerHTML = `<div class="row"><h1>${esc(k.title)}</h1><span class="sp"></span>${can("kb.write") ? `<button class="btn" id="ke">✎ Düzenle</button><button class="btn d" id="kd">Sil</button>` : ""}<a class="btn" href="#/kb">‹ Liste</a></div>
-    <div class="card"><div style="white-space:pre-wrap;font-size:15px">${esc(k.body)}</div><p class="small muted" style="margin-top:14px">Modeller: ${esc(k.match || "—")} · ${esc(k.tags || "")} · ${fmtDate(k.updated_at)} ${esc(k.updated_by || "")}</p></div>`;
-  if ($("#ke")) { $("#ke").onclick = () => modal("Düzenle", kbForm(k), async b => { await api("/api/kb/" + id, {method: "PATCH", body: b}); route(); });
+    <div class="card"><div style="white-space:pre-wrap;font-size:15px">${esc(k.body)}</div><p class="small muted" style="margin-top:14px">Modeller: ${esc(k.match || "—")} · ${esc(k.tags || "")} ${k.public ? "· <b>herkese açık (QR)</b>" : ""} · ${fmtDate(k.updated_at)} ${esc(k.updated_by || "")}</p></div>`;
+  if ($("#ke")) { $("#ke").onclick = () => modal("Düzenle", kbForm(k), async b => { b.public = !!b.public; await api("/api/kb/" + id, {method: "PATCH", body: b}); route(); });
     $("#kd").onclick = async () => { if (confirm("Silinsin mi?")) { await api("/api/kb/" + id, {method: "DELETE"}); go("/kb"); } }; }
 };
 
@@ -473,12 +502,20 @@ PRO["/reports"] = async v => {
       <div class="row"><input type="date" id="ps" value="${ago(365)}" style="width:auto"><input type="date" id="pe" value="${today()}" style="width:auto"><button class="btn p" id="pk">⇩ ZIP</button></div></div>
     <div class="card"><h2>Taşınır listesi</h2><p class="small muted">Taşınır kodu, sicil no, edinme tarihi/bedeli ile Excel. Kurumunuzun taşınır/MKYS sistemine aktarmadan önce sütun biçimini kontrol edin.</p><a class="btn" href="/api/reports/tasinir.xlsx">⇩ Excel</a></div>
     <div class="card"><h2>Yenileme / yatırım gerekçesi</h2><p class="small muted">Eşik: ${r.thresholds.age_years} yaş veya 12 ayda ${r.thresholds.tickets_12m} arıza (Ayarlar'dan değişir). Yaş “Edinme Tarihi” alanından hesaplanır.</p><a class="btn" href="/api/reports/renewal.xlsx">⇩ Excel</a></div></div>
+    <div class="card"><div class="row"><h2 style="margin:0">Yazıcı baskı ve maliyet raporu</h2><span class="sp"></span><a class="btn s" href="/api/reports/printing.xlsx">⇩ Excel</a></div><div id="pr"></div></div>
     <div class="card"><h2>Birimlere göre durum</h2><div class="tw"><table><thead><tr><th>Birim</th><th>Cihaz</th><th>Ort. yaş</th><th>12 ay arıza</th><th>Cihaz başı arıza</th><th>Arızalı/serviste</th><th>Yenileme adayı</th></tr></thead><tbody>
       ${r.units.map(u => `<tr><td><b>${esc(u.location)}</b></td><td>${u.count}</td><td>${u.avg_age ?? "—"} <span class="small muted">${u.age_known < u.count ? `(${u.age_known} cihazda)` : ""}</span></td><td>${u.tickets}</td><td>${u.tickets_per_device}</td><td>${u.faulty}</td><td class="${u.candidates ? "err" : ""}"><b>${u.candidates}</b></td></tr>`).join("")}</tbody></table></div></div>
     <div class="card"><h2>Yenileme adayları (${r.candidates.length})</h2><div class="tw" style="max-height:420px"><table><thead><tr><th>Barkod</th><th>Birim</th><th>Cihaz</th><th>Yaş</th><th>Arıza</th><th>Gerekçe</th></tr></thead><tbody>
       ${r.candidates.map(c => `<tr><td><a href="#/asset/${c.id}">${esc(c.asset_code)}</a></td><td class="small">${esc(c.location)}</td><td class="small">${esc(c.hardware_info || "")} ${esc(c.brand_model || "")}</td><td>${c.age ?? "—"}</td><td>${c.tickets}</td><td class="small">${esc(c.reasons)}</td></tr>`).join("") || "<tr><td colspan=6 class=muted>Aday yok</td></tr>"}</tbody></table></div></div>
     <div class="card"><h2>Hurda / terkin tutanakları</h2><p class="small muted">Yeni tutanak: Cihazlar listesinde seçip “Hurdaya ayır”.</p><table><tr><th>Belge</th><th>Tarih</th><th>Gerekçe</th><th>Adet</th></tr>${ds.map(d => `<tr><td><a href="/print/hurda/${esc(d.doc_no)}" target="_blank">${esc(d.doc_no)}</a></td><td class="small">${fmtDate(d.at)}</td><td class="small">${esc(d.reason)}</td><td>${JSON.parse(d.asset_ids).length}</td></tr>`).join("")}</table></div>`;
   $("#pk").onclick = () => download("/api/reports/audit-pack.zip?" + qs({start: $("#ps").value, end: $("#pe").value}));
+  api("/api/reports/printing").then(pr => {
+    $("#pr").innerHTML = pr.printers.length ? `<p class="small muted">Sayfa başı maliyet: <b>${pr.cost_per_page} TL</b> (Ayarlar). Sayaçlar yazıcı SNMP sorgusuyla güncellenir.</p>
+      <div class="grid g2"><div><h3>En çok basan birimler</h3><table><tr><th>Birim</th><th>Sayfa</th><th>Maliyet</th></tr>${pr.top_units.map(u => `<tr><td>${esc(u.location)}</td><td>${u.pages.toLocaleString("tr-TR")}</td><td>${u.cost.toLocaleString("tr-TR")} TL</td></tr>`).join("")}</table></div>
+      <div><h3>Yazıcılar</h3><div class="tw" style="max-height:240px"><table><tr><th>Barkod</th><th>Birim</th><th>Sayfa</th><th>Maliyet</th></tr>${pr.printers.map(x => `<tr><td><a href="#/asset/${x.id}">${esc(x.asset_code)}</a></td><td class="small">${esc(x.location)}</td><td>${x.pages.toLocaleString("tr-TR")}</td><td>${x.cost.toLocaleString("tr-TR")} TL</td></tr>`).join("")}</table></div></div></div>
+      <p style="margin-top:8px"><b>Toplam: ${pr.total_pages.toLocaleString("tr-TR")} sayfa · ${pr.total_cost.toLocaleString("tr-TR")} TL</b></p>`
+      : `<p class="muted small">Henüz yazıcı sayaç verisi yok. Yazıcı cihaz sayfasında “SNMP sorgula” ya da Ağ&Ajan → yazıcıları sorgula ile veri toplanır. En az iki okuma arasındaki fark raporlanır.</p>`;
+  }).catch(() => {});
 };
 
 /* ---------- kurumlar ---------- */
@@ -516,6 +553,12 @@ async function settingsPro(el, s) {
       <label class="f"><span>Yenileme eşiği: yaş (yıl)</span><input name="age_years" type="number" step="0.5" value="${(s.renewal || {}).age_years ?? 5}"></label>
       <label class="f"><span>Yenileme eşiği: 12 ayda arıza</span><input name="tickets_12m" type="number" value="${(s.renewal || {}).tickets_12m ?? 3}"></label></div>
       <label class="f"><span>Uzak bağlantı şablonu — cihaz sayfasında “Uzak bağlan” düğmesi (ör. <span class="mono">nexdesk://connect/{nexdesk_id}</span>; {alan_anahtarı} yer tutucuları)</span><input name="remote_url_template" value="${esc(s.remote_url_template || "")}"></label>
+      <label class="row"><input type="checkbox" name="discovery_approval" ${s.discovery_approval ? "checked" : ""}> Tarama/ajan yeni cihazı doğrudan değil onay kuyruğuna düşürsün</label>
+      <div class="grid g4" style="margin-top:10px"><label class="f"><span>Çevrimdışı alarmı (gün)</span><input name="offline_alert_days" type="number" min="1" value="${s.offline_alert_days ?? 3}"></label>
+        <label class="f"><span>Toner alarm eşiği (%)</span><input name="toner_alert_pct" type="number" min="0" max="100" value="${s.toner_alert_pct ?? 10}"></label>
+        <label class="f"><span>Sayfa başı maliyet (TL)</span><input name="cost_per_page" type="number" step="0.01" min="0" value="${s.cost_per_page ?? 0}"></label>
+        <label class="f"><span>Yazıcı otomatik sorgu (saat, 0=kapalı)</span><input name="printer_poll_hours" type="number" step="0.5" min="0" value="${s.printer_poll_hours ?? 0}"></label></div>
+      <label class="f"><span>Varsayılan SNMP community</span><input name="default_community" value="${esc(s.default_community || "public")}" style="max-width:220px"></label>
       <button class="btn p">Kaydet</button></form>
     <form class="card" id="ld"><h2>Active Directory girişi</h2>
       <label class="row"><input type="checkbox" name="enabled" ${L.enabled ? "checked" : ""}> Etkin (yerel hesaplar çalışmaya devam eder)</label>
@@ -540,7 +583,9 @@ async function settingsPro(el, s) {
     <div class="card"><h2>PC ajanı anahtarı</h2><p class="small mono" style="word-break:break-all">${esc(s.agent_token || "")}</p><button class="btn s" id="ar">Yenile</button> <span class="small muted">Yenilerseniz GPO komutunu güncelleyin.</span></div></div></div>`;
   $("#ps").onsubmit = async e => { e.preventDefault(); const b = Object.fromEntries(new FormData(e.target));
     const body = {public_tickets: !!b.public_tickets, ticket_categories: b.ticket_categories.split("\n").map(x => x.trim()).filter(Boolean), remote_url_template: b.remote_url_template.trim(),
-      maintenance_warn_days: +b.maintenance_warn_days, warranty_warn_days: +b.warranty_warn_days, renewal: {age_years: +b.age_years, tickets_12m: +b.tickets_12m}};
+      maintenance_warn_days: +b.maintenance_warn_days, warranty_warn_days: +b.warranty_warn_days, renewal: {age_years: +b.age_years, tickets_12m: +b.tickets_12m},
+      discovery_approval: !!b.discovery_approval, offline_alert_days: +b.offline_alert_days, toner_alert_pct: +b.toner_alert_pct,
+      cost_per_page: +b.cost_per_page, printer_poll_hours: +b.printer_poll_hours, default_community: b.default_community.trim() || "public"};
     try { await api("/api/settings", {method: "PUT", body}); M.meta = null; toast("Kaydedildi"); } catch (err) { fail(err); } };
   $("#ld").onsubmit = async e => { e.preventDefault(); const b = Object.fromEntries(new FormData(e.target));
     const role_map = b.role_map.split("\n").map(l => l.trim()).filter(Boolean).map(l => { const [g, rest] = l.split("="); const [r, u] = (rest || "").split(":");

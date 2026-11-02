@@ -218,6 +218,9 @@ def main():
     db.init()
     db.backup_loop()
     network.scheduler()
+    from . import alerts, printers
+    alerts.scheduler()
+    printers.scheduler() if hasattr(printers, "scheduler") else None
     api.app.state.port = args.port
 
     ssl_kw = {}

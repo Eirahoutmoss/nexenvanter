@@ -7,15 +7,15 @@ def _search(title, body, match, tags):
     return fold(" ".join(x or "" for x in (title, body, match, tags)))
 
 
-def create(title, body, match=None, tags=None, user=None) -> dict:
+def create(title, body, match=None, tags=None, user=None, public=False) -> dict:
     title, body = (title or "").strip(), (body or "").strip()
     if not title or not body:
         raise ValueError("Başlık ve içerik gerekli")
     ts = db.now()
     cur = db.conn().execute(
-        "INSERT INTO kb(title,body,match,tags,created_by,created_at,updated_by,updated_at,search) VALUES(?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO kb(title,body,match,tags,created_by,created_at,updated_by,updated_at,search,public) VALUES(?,?,?,?,?,?,?,?,?,?)",
         (title[:200], body[:20000], (match or "")[:500] or None, (tags or "")[:200] or None, user, ts, user, ts,
-         _search(title, body, match, tags)))
+         _search(title, body, match, tags), int(bool(public))))
     return get(cur.lastrowid)
 
 
@@ -26,6 +26,8 @@ def update(kid, patch, user) -> dict:
     for k in ("title", "body", "match", "tags"):
         if k in patch:
             e[k] = patch[k]
+    if "public" in patch:
+        db.conn().execute("UPDATE kb SET public=? WHERE id=?", (int(bool(patch["public"])), kid))
     db.conn().execute("UPDATE kb SET title=?,body=?,match=?,tags=?,updated_by=?,updated_at=?,search=? WHERE id=?",
                       (e["title"], e["body"], e["match"], e["tags"], user, db.now(),
                        _search(e["title"], e["body"], e["match"], e["tags"]), kid))
@@ -59,14 +61,18 @@ def query(q="", limit=200):
     return [dict(r) for r in rows]
 
 
-def for_asset(asset: dict, limit=10) -> list[dict]:
+def for_asset(asset: dict, limit=10, public_only=False) -> list[dict]:
     """Cihazın marka-model/donanım metninde anahtar kelimesi geçen kayıtlar."""
     text = fold(" ".join(str(asset.get("data", {}).get(k) or "") for k in ("brand_model", "hardware_info")))
     if not text.strip():
         return []
     out = []
-    for r in db.conn().execute("SELECT id,title,match,views FROM kb WHERE match IS NOT NULL AND match<>''"):
+    q = "SELECT id,title,body,match,views,public FROM kb WHERE match IS NOT NULL AND match<>''" + (" AND public=1" if public_only else "")
+    for r in db.conn().execute(q):
         keys = [fold(k) for k in r["match"].split(",") if fold(k)]
         if any(k in text for k in keys):
-            out.append(dict(r))
+            d = dict(r)
+            if not public_only:
+                d.pop("body", None)
+            out.append(d)
     return sorted(out, key=lambda x: -x["views"])[:limit]

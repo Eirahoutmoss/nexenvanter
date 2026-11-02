@@ -94,7 +94,7 @@ SYSTEM_FIELDS = [
     ("status", "Durum", "select", ["durum", "status"], 1, 1, 1, 90),
 ]
 
-STATUSES = ["aktif", "depoda", "bakımda", "serviste", "arızalı", "hurda"]
+STATUSES = ["aktif", "depoda", "yedek", "bakımda", "serviste", "arızalı", "hurda"]
 
 DEFAULT_SETTINGS = {
     "org_name": "ADIYAMAN EĞİTİM VE ARAŞTIRMA HASTANESİ",
@@ -200,7 +200,55 @@ def init():
                 t.execute("INSERT OR IGNORE INTO asset_types(name,category_id) SELECT ?, id FROM asset_categories WHERE name=?",
                           (name, cat))
         c.execute("PRAGMA user_version=3")
-    # Gelecek geçişler: if ver < 4: ...
+    if ver < 4:
+        with tx() as t:
+            for stmt in SCHEMA_V4.split(";"):
+                if stmt.strip():
+                    t.execute(stmt)
+            for k, label, typ, al, sort in FIELDS_V4:
+                t.execute("INSERT OR IGNORE INTO fields(key,label,type,aliases,show_list,show_preview,public,sort)"
+                          " VALUES(?,?,?,?,0,0,0,?)", (k, label, typ, json.dumps(al), sort))
+            for k, v in SETTINGS_V4.items():
+                t.execute("INSERT OR IGNORE INTO settings VALUES(?,?)", (k, json.dumps(v, ensure_ascii=False)))
+            t.execute("UPDATE fields SET options=? WHERE key='status'", (json.dumps(STATUSES),))  # 'yedek' durumu eklendi
+        c.execute("PRAGMA user_version=4")
+    # Gelecek geçişler: if ver < 5: ...
+
+
+SCHEMA_V4 = """
+ALTER TABLE kb ADD COLUMN public INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE assets ADD COLUMN critical INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE assets ADD COLUMN snmp_community TEXT;
+CREATE TABLE printer_readings (id INTEGER PRIMARY KEY, asset_id INTEGER NOT NULL, at TEXT NOT NULL, pages INTEGER,
+  supplies TEXT, status TEXT, errors TEXT);
+CREATE INDEX ix_prreadings ON printer_readings(asset_id, at);
+CREATE TABLE pending_devices (id INTEGER PRIMARY KEY, ip TEXT, mac TEXT, hostname TEXT, kind TEXT, source TEXT,
+  data TEXT NOT NULL DEFAULT '{}', status TEXT NOT NULL DEFAULT 'bekliyor', seen_at TEXT NOT NULL, decided_at TEXT,
+  decided_by TEXT, asset_id INTEGER, note TEXT, dedup TEXT UNIQUE);
+CREATE TABLE alerts (id INTEGER PRIMARY KEY, at TEXT NOT NULL, asset_id INTEGER, kind TEXT NOT NULL, severity TEXT NOT NULL DEFAULT 'uyarı',
+  message TEXT NOT NULL, data TEXT NOT NULL DEFAULT '{}', state TEXT NOT NULL DEFAULT 'açık', ack_by TEXT, ack_at TEXT,
+  ticket_id INTEGER, dedup TEXT);
+CREATE INDEX ix_alerts_state ON alerts(state, at);
+CREATE TABLE service_points (id INTEGER PRIMARY KEY, name TEXT NOT NULL, location TEXT, note TEXT, critical INTEGER NOT NULL DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL);
+CREATE TABLE service_point_items (point_id INTEGER NOT NULL, asset_id INTEGER NOT NULL UNIQUE, role TEXT, PRIMARY KEY(point_id, asset_id));
+CREATE TABLE spare_loans (id INTEGER PRIMARY KEY, asset_id INTEGER NOT NULL, out_at TEXT NOT NULL, out_by TEXT, to_unit TEXT,
+  to_person TEXT, replacing_asset_id INTEGER, ticket_id INTEGER, note TEXT, back_at TEXT, back_by TEXT);
+CREATE INDEX ix_spare_asset ON spare_loans(asset_id)
+"""
+
+FIELDS_V4 = [
+    ("page_count", "Sayfa Sayacı", "number", ["sayac", "sayfa sayaci", "baski sayisi"], 150),
+    ("firmware", "Yazılım Sürümü", "text", ["firmware", "yazilim", "yazilim surumu"], 152),
+]
+SETTINGS_V4 = {
+    "cost_per_page": 0.0,        # TL/sayfa (toner + kağıt tahmini)
+    "printer_poll_hours": 0,     # 0 = kapalı
+    "default_community": "public",
+    "offline_alert_days": 3,
+    "toner_alert_pct": 10,
+    "discovery_approval": True,   # tarama cihazı doğrudan değil onaya düşsün
+}
 
 
 SCHEMA_V3 = """

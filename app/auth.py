@@ -46,6 +46,13 @@ PERMS = {
     "kb.write": _STAFF,
     "network": {"admin", "manager"},
     "reports": {"admin", "manager", "auditor"},
+    "discovery": {"admin", "manager"},
+    "alerts.read": _ALL - {"viewer"},
+    "alerts.manage": _STAFF,
+    "spares": _STAFF,
+    "servicepoints": _ALL,
+    "servicepoints.manage": {"admin", "manager"},
+    "analytics": {"admin", "manager", "auditor"},
 }
 
 SESSION_TTL = 12 * 3600

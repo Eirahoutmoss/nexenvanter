@@ -13,3 +13,7 @@ dl{margin:12px 18px;display:grid;grid-template-columns:auto 1fr;gap:10px 16px}dt
 .tform input,.tform select,.tform textarea{display:block;width:100%;margin-top:4px;padding:11px;border:1px solid #d5dbe8;border-radius:10px;font:inherit;font-size:16px}
 .tform .btn{width:100%;margin:6px 0 4px}.state a{color:inherit;font-weight:700}
 @media (prefers-color-scheme:dark){.tform input,.tform select,.tform textarea{background:#0b1020;color:#e6ebf7;border-color:#26304a}.btn.sec{background:#1d2742}}
+.faq{margin:10px 18px 4px}.faq-h{font-weight:700;font-size:13px;margin-bottom:6px;color:#5a6888}
+.faq details{border:1px solid #e3e8f2;border-radius:10px;padding:8px 12px;margin-bottom:6px;background:#fff}
+.faq summary{cursor:pointer;font-weight:600;font-size:14px;color:#0d1b3a}.faq-b{margin-top:6px;font-size:14px;white-space:pre-wrap;color:#333}
+@media (prefers-color-scheme:dark){.faq details{background:#141b30;border-color:#26304a}.faq summary{color:#e6ebf7}.faq-b{color:#c9d3ea}}

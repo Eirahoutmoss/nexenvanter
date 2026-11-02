@@ -113,6 +113,8 @@ def report(raw: dict, ip: str) -> dict:
     if not d["hostname"]:
         raise ValueError("hostname gerekli")
     aid = match(d)
+    prev = db.conn().execute("SELECT data FROM agent_reports WHERE hostname=?", (d["hostname"],)).fetchone()
+    before = json.loads(prev[0]) if prev else {}
     db.conn().execute("""INSERT INTO agent_reports(hostname,serial,macs,data,ip,at,asset_id) VALUES(?,?,?,?,?,?,?)
         ON CONFLICT(hostname) DO UPDATE SET serial=excluded.serial, macs=excluded.macs, data=excluded.data, ip=excluded.ip,
         at=excluded.at, asset_id=coalesce(excluded.asset_id, agent_reports.asset_id)""",
@@ -122,6 +124,14 @@ def report(raw: dict, ip: str) -> dict:
         aid = r[0] if r else None
     if aid:
         apply(aid, d)
+        if before:  # donanım/seri değişikliği alarmı
+            from . import alerts
+            alerts.check_agent_change(aid, before, d)
+    else:  # envanterde yok → onay kuyruğuna
+        from . import discovery
+        if discovery.enabled():
+            discovery.offer(ip=ip, mac=d["macs"][0] if d["macs"] else None, hostname=d["hostname"], kind="Bilgisayar",
+                            source="ajan", data=d)
     return {"matched": bool(aid), "asset_id": aid}
 
 

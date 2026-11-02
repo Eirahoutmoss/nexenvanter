@@ -9,8 +9,9 @@ from datetime import date, timedelta
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 
-from . import (agent, assets as A, catalog, assignments as Z, auth, counts as C, db, exporter, federation, fields as F, kb,
-               license, maintenance as M, network as N, reports as R, stock as S, tickets as T)
+from . import (agent, alerts as AL, analytics as AN, assets as A, catalog, assignments as Z, auth, counts as C, db,
+               discovery as DISC, exporter, federation, fields as F, kb, license, maintenance as M, network as N,
+               printers as PR, reports as R, servicepoints as SP, spares as SPR, stock as S, tickets as T)
 from . import VERSION
 from .api import ApiError, base_url, body, current_user, ip, need, scoped_asset
 from .paths import DIRS
@@ -60,6 +61,11 @@ def asset_extras(a: dict, u: dict) -> dict:
         "network": N.for_asset(a) if auth.can(u, "network") else [],
         "tickets": T.query(asset_id=a["id"], size=20)["items"] if auth.can(u, "ticket.read") else [],
         "remote_url": remote_url(a),
+        "service_point": SP.point_of(a["id"]),
+        "printer_reading": PR.latest(a["id"]) if auth.can(u, "network") else None,
+        "spare_history": SPR.history(a["id"]),
+        "alerts": [x for x in AL.query("açık")["items"] if x["asset_id"] == a["id"]] if auth.can(u, "alerts.read") else [],
+        "critical": bool(a.get("critical")),
     }
 
 
@@ -75,7 +81,9 @@ def summary_data(u=None) -> dict:
             "maint_overdue": ag["overdue"], "maint_due": len(ag["due"]), "warranty_soon": len(ag["warranty"]),
             "low_stock": S.low_count() if sc is None else 0,
             "counts_open": c.execute("SELECT COUNT(*) FROM counts WHERE status='açık'").fetchone()[0],
-            "assigned": c.execute("SELECT COUNT(*) FROM assignments WHERE ended_at IS NULL").fetchone()[0]}
+            "assigned": c.execute("SELECT COUNT(*) FROM assignments WHERE ended_at IS NULL").fetchone()[0],
+            "alerts_open": AL.count_open(sc), "pending": DISC.count_pending() if sc is None else 0,
+            "spares": SPR.pool(sc)["available_count"]}
 
 
 @router.get("/api/summary")
@@ -88,7 +96,9 @@ def badges(u=Depends(need("asset.read"))):
     sc = auth.scope(u)
     tc = T.counts(sc)
     return {"tickets_new": tc["yeni"], "tickets_open": tc["open"], "maint_overdue": M.agenda(locations=sc)["overdue"],
-            "low_stock": S.low_count() if auth.can(u, "stock.read") else 0}
+            "low_stock": S.low_count() if auth.can(u, "stock.read") else 0,
+            "alerts_open": AL.count_open(sc) if auth.can(u, "alerts.read") else 0,
+            "pending": DISC.count_pending() if auth.can(u, "discovery") else 0}
 
 
 # ---------------- arıza ----------------
@@ -348,7 +358,7 @@ def kb_get(kid: int, u=Depends(need("kb.read"))):
 @router.post("/api/kb")
 async def kb_create(req: Request, u=Depends(need("kb.write"))):
     b = await body(req)
-    return kb.create(b.get("title"), b.get("body"), b.get("match"), b.get("tags"), u["username"])
+    return kb.create(b.get("title"), b.get("body"), b.get("match"), b.get("tags"), u["username"], bool(b.get("public")))
 
 
 @router.patch("/api/kb/{kid}")
@@ -631,6 +641,10 @@ def qr_page(public_id: str, req: Request):
     state = '<div class="state warn">Arşivde</div>' if a["archived"] else '<div class="state ok">Cihaz bilgisi bulundu</div>'
     open_t = T.query("open", asset_id=a["id"], size=5)["items"]
     tinfo = f'<p class="muted">Bu cihaz için açık {len(open_t)} arıza kaydı var.</p>' if open_t else ""
+    faq = kb.for_asset(a, limit=5, public_only=True)
+    if faq:
+        items = "".join(f"<details><summary>{esc(k['title'])}</summary><div class='faq-b'>{esc(k['body'])}</div></details>" for k in faq)
+        tinfo += f'<div class="faq"><div class="faq-h">Sık karşılaşılan sorunlar</div>{items}</div>'
     if u and auth.can(u, "asset.read") and auth.in_scope(u, a["data"].get("location_name")):
         detail = f'<a class="btn" href="/#/asset/{a["id"]}">Detayları Gör →</a>'
     else:
@@ -766,6 +780,209 @@ def print_count(cid: int, u=Depends(need("count"))):
     sigs = _sig("Sayımı Yapan", d["created_by"], None) + _sig("Birim Sorumlusu", "", None) + _sig("BİM", "", None)
     return _doc("ENVANTER SAYIM TUTANAĞI", meta + tbl("Bulunamayanlar", d["missing_items"])
                 + tbl("Başka birimde kayıtlı olup burada bulunanlar", d["foreign_items"]) + f'<div class="sig">{sigs}</div>')
+
+
+# ---------------- alarmlar ----------------
+@router.get("/api/alerts")
+def alerts_list(state: str = "açık", severity: str = "", page: int = 1, u=Depends(need("alerts.read"))):
+    return AL.query(state or "açık", severity or None, page, 100, auth.scope(u))
+
+
+@router.post("/api/alerts/{aid}/resolve")
+async def alerts_resolve(aid: int, req: Request, u=Depends(need("alerts.manage"))):
+    b = await body(req)
+    try:
+        return AL.resolve(aid, u["username"], bool(b.get("make_ticket")))
+    except KeyError:
+        raise ApiError(404, "NOT_FOUND", "Alarm bulunamadı")
+
+
+@router.post("/api/alerts/{aid}/ack")
+def alerts_ack(aid: int, u=Depends(need("alerts.read"))):
+    AL.ack(aid, u["username"])
+    return {"ok": True}
+
+
+@router.post("/api/alerts/check")
+def alerts_check(u=Depends(need("alerts.manage"))):
+    AL.check_offline()
+    return AL.query("açık")
+
+
+# ---------------- onay kuyruğu ----------------
+@router.get("/api/pending")
+def pending_list(u=Depends(need("discovery"))):
+    return {"items": DISC.pending(), "count": DISC.count_pending()}
+
+
+@router.post("/api/pending/{pid}/approve")
+async def pending_approve(pid: int, req: Request, u=Depends(need("discovery"))):
+    b = await body(req)
+    try:
+        return DISC.approve(pid, u["username"], b.get("extra"), b.get("type"))
+    except KeyError:
+        raise ApiError(404, "NOT_FOUND", "Kayıt bulunamadı")
+
+
+@router.post("/api/pending/{pid}/ignore")
+def pending_ignore(pid: int, u=Depends(need("discovery"))):
+    DISC.ignore(pid, u["username"])
+    return {"ok": True}
+
+
+# ---------------- yazıcı SNMP / sayaç / maliyet ----------------
+@router.post("/api/printers/snmp/query")
+async def printer_snmp_query(req: Request, u=Depends(need("network"))):
+    b = await body(req)
+    ip_ = (b.get("ip") or "").strip()
+    if not ip_:
+        raise ApiError(400, "BAD_REQUEST", "IP adresi gerekli")
+    try:
+        return PR.query(ip_, b.get("community") or db.get_setting("default_community", "public"))
+    except RuntimeError as e:
+        raise ApiError(400, "SNMP_FAIL", str(e))
+
+
+@router.post("/api/assets/{aid}/printer-poll")
+def printer_poll_one(aid: int, u=Depends(need("network"))):
+    scoped_asset(u, aid)
+    try:
+        return PR.poll_asset(aid, u["username"])
+    except (KeyError, RuntimeError) as e:
+        raise ApiError(400, "SNMP_FAIL", str(e))
+
+
+@router.post("/api/printers/poll-all")
+def printer_poll_all(u=Depends(need("network"))):
+    return PR.poll_all(u["username"])
+
+
+@router.get("/api/reports/printing")
+def rep_printing(u=Depends(need("reports"))):
+    return PR.cost_report()
+
+
+@router.get("/api/reports/printing.xlsx")
+def rep_printing_x(u=Depends(need("reports"))):
+    r = PR.cost_report()
+    return _xlsx(exporter.book_multi({
+        "Yazıcılar": (["Barkod", "Model", "Birim", "İlk okuma", "Son okuma", "Sayfa", "Maliyet (TL)"],
+                      [[p["asset_code"], p["model"], p["location"], p["first_at"], p["last_at"], p["pages"], p["cost"]] for p in r["printers"]]),
+        "Birimler": (["Birim", "Yazıcı", "Sayfa", "Maliyet (TL)"],
+                     [[x["location"], x["printers"], x["pages"], x["cost"]] for x in r["units"]]),
+    }), f"baski-raporu-{date.today()}.xlsx")
+
+
+# ---------------- yedek havuzu ----------------
+@router.get("/api/spares")
+def spares_list(u=Depends(need("asset.read"))):
+    return SPR.pool(auth.scope(u))
+
+
+@router.post("/api/spares/mark")
+async def spares_mark(req: Request, u=Depends(need("spares"))):
+    return SPR.mark_spare(_scoped_ids(u, _ids((await body(req)).get("asset_ids"))), u["username"])
+
+
+@router.post("/api/spares/give")
+async def spares_give(req: Request, u=Depends(need("spares"))):
+    b = await body(req)
+    try:
+        return SPR.give(int(b.get("asset_id")), u["username"], b.get("to_unit"), b.get("to_person"),
+                        int(b["replacing_asset_id"]) if b.get("replacing_asset_id") else None,
+                        int(b["ticket_id"]) if b.get("ticket_id") else None, b.get("note"))
+    except ValueError as e:
+        raise ApiError(400, "BAD_REQUEST", str(e))
+
+
+@router.post("/api/spares/{aid}/back")
+async def spares_back(aid: int, req: Request, u=Depends(need("spares"))):
+    try:
+        return SPR.take_back(aid, u["username"], (await body(req)).get("note"))
+    except ValueError as e:
+        raise ApiError(400, "BAD_REQUEST", str(e))
+
+
+# ---------------- hizmet noktaları / durum panosu ----------------
+@router.get("/api/service-points")
+def sp_list(u=Depends(need("servicepoints"))):
+    return SP.list_points(auth.scope(u))
+
+
+@router.get("/api/service-points/{pid}")
+def sp_get(pid: int, u=Depends(need("servicepoints"))):
+    p = SP.get(pid)
+    if not p:
+        raise ApiError(404, "NOT_FOUND", "Nokta bulunamadı")
+    return p
+
+
+@router.post("/api/service-points")
+async def sp_add(req: Request, u=Depends(need("servicepoints.manage"))):
+    return SP.save(await body(req))
+
+
+@router.patch("/api/service-points/{pid}")
+async def sp_patch(pid: int, req: Request, u=Depends(need("servicepoints.manage"))):
+    b = await body(req)
+    if "items" in b:
+        return SP.set_items(pid, b["items"])
+    return SP.save(b, pid)
+
+
+@router.delete("/api/service-points/{pid}")
+def sp_del(pid: int, u=Depends(need("servicepoints.manage"))):
+    SP.delete(pid)
+    return {"ok": True}
+
+
+@router.get("/api/noc")
+def noc(u=Depends(need("asset.read"))):
+    sc = auth.scope(u)
+    points = SP.list_points(sc)
+    c = db.conn()
+    crit_ids = [r["id"] for r in c.execute("SELECT id FROM assets WHERE archived=0 AND critical=1")]
+    crit = []
+    for aid in crit_ids:
+        a = A.get(aid)
+        if sc is not None and not auth.in_scope(u, a["data"].get("location_name")):
+            continue
+        crit.append({"id": aid, "asset_code": a["asset_code"], "brand_model": a["data"].get("brand_model"),
+                     "location": a["data"].get("location_name"), "hardware_info": a["data"].get("hardware_info"),
+                     "live": SP._status_of(aid)})
+    crit.sort(key=lambda x: SP._RANK.get(x["live"], 9))
+    return {"points": points, "critical": crit, "alerts": AL.query("açık", locations=sc)["items"][:30]}
+
+
+@router.post("/api/assets/{aid}/critical")
+async def asset_critical(aid: int, req: Request, u=Depends(need("asset.write"))):
+    scoped_asset(u, aid)
+    b = await body(req)
+    on = bool(b.get("critical"))
+    db.conn().execute("UPDATE assets SET critical=? WHERE id=?", (int(on), aid))
+    if "snmp_community" in b:
+        db.conn().execute("UPDATE assets SET snmp_community=? WHERE id=?", ((b.get("snmp_community") or "").strip() or None, aid))
+    db.audit(u["username"], "asset_critical", aid, {"critical": on}, ip(req))
+    return A.get(aid)
+
+
+# ---------------- arıza analizi ----------------
+@router.get("/api/analytics/tickets")
+def an_tickets(days: int = 90, u=Depends(need("analytics"))):
+    return AN.ticket_analysis(days, auth.scope(u))
+
+
+@router.get("/api/analytics/workload")
+def an_workload(days: int = 30, u=Depends(need("analytics"))):
+    return AN.workload(days)
+
+
+# ---------------- personel ayrılışı (offboarding) ----------------
+@router.get("/api/holders")
+def holders(u=Depends(need("asset.read"))):
+    rows = db.conn().execute("SELECT holder_name, holder_unit, COUNT(*) n FROM assignments WHERE ended_at IS NULL "
+                             "GROUP BY holder_name, holder_unit ORDER BY n DESC")
+    return [dict(r) for r in rows]
 
 
 # ---------------- türler & kategoriler ----------------

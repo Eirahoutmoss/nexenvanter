@@ -605,7 +605,8 @@ def audit_log(page: int = 1, q: str = "", u=Depends(need("audit"))):
 
 SETTING_KEYS = ("org_name", "unit_name", "system_title", "base_url", "import_ignore_headers", "backup_keep", "default_printer",
                 "public_tickets", "ticket_categories", "remote_url_template", "ldap", "net_scan", "renewal",
-                "maintenance_warn_days", "warranty_warn_days")
+                "maintenance_warn_days", "warranty_warn_days", "cost_per_page", "printer_poll_hours", "default_community",
+                "offline_alert_days", "toner_alert_pct", "discovery_approval")
 
 
 @app.get("/api/settings")

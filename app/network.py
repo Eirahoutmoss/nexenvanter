@@ -310,6 +310,23 @@ def scan(user="sistem") -> dict:
                "blocks": [{"name": t["name"], "target": t["target"], "size": len(t["hosts"]),
                            "alive": sum(1 for r in found if block_of.get(r["ip"]) == t["name"])} for t in targets]}
         STATE.update(last_run=ts, last_result=res)
+        # Envanterde olmayan cihazları onay kuyruğuna düşür
+        try:
+            from . import discovery
+            if discovery.enabled():
+                amap = asset_mac_map()
+                offered = 0
+                for r in found:
+                    mac = ip_mac.get(r["ip"])
+                    if mac and mac in amap:
+                        continue
+                    if discovery.offer(ip=r["ip"], mac=mac, hostname=r.get("netbios") or rd.get(r["ip"]),
+                                       kind=_kind(",".join(map(str, r["ports"]))) or None, source="tarama",
+                                       data={"ports": r["ports"], "block": block_of.get(r["ip"]), "method": r["method"]}):
+                        offered += 1
+                res["offered"] = offered
+        except Exception as e:
+            res.setdefault("errors", []).append(f"onay kuyruğu: {e}")
         db.audit(user, "net_scan", None, {k: res[k] for k in ("alive", "macs", "switches")})
         return res
     finally:
