@@ -71,6 +71,23 @@ def get_by_code(code) -> dict | None:
 
 
 def create(payload: dict, user: str, source_import=None, t=None) -> dict:
+    """Tür biliniyorsa kategori atanır; barkod boşsa kategoriye ait ardışık numara verilir."""
+    from . import catalog
+    with catalog.LOCK:
+        payload = dict(payload)
+        cat = catalog.resolve(payload.get("hardware_info"))
+        if cat:
+            if not str(payload.get("category") or "").strip():
+                payload["category"] = cat["category"]
+            if not str(payload.get("asset_code") or "").strip():
+                payload["asset_code"] = catalog.peek_code(cat["category_id"])
+        res = _create(payload, user, source_import, t)
+        if cat:
+            catalog.commit_code(cat["category_id"], str(payload["asset_code"]).strip())
+        return res
+
+
+def _create(payload: dict, user: str, source_import=None, t=None) -> dict:
     from . import license
     try:
         license.check_limit("assets", db.conn().execute("SELECT COUNT(*) FROM assets WHERE archived=0").fetchone()[0])
@@ -104,6 +121,11 @@ def update(asset_id: int, payload: dict, user: str, blank_overwrites=True, t=Non
     if not r:
         raise AssetError("NOT_FOUND", "Kayıt bulunamadı", 404)
     cur = _out(r)
+    if payload.get("hardware_info") and "category" not in payload:
+        from . import catalog
+        cat = catalog.resolve(payload["hardware_info"])
+        if cat:
+            payload = {**payload, "category": cat["category"]}
     code, status, data, errors = validate(payload, partial=True)
     if errors:
         raise AssetError("VALIDATION_ERROR", "Doğrulama hatası", 422, {"fields": errors})

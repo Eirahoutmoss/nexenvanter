@@ -56,6 +56,59 @@ async function codesToIds(text) {
   return ids;
 }
 
+/* ---------- form: tür → kategori + otomatik numara ---------- */
+async function formPro(form, isNew) {
+  const ti = $('[name="hardware_info"]', form), ci = $('[name="asset_code"]', form), ki = $('[name="category"]', form);
+  if (!ti) return;
+  const cat = await api("/api/catalog").catch(() => ({types: [], categories: []}));
+  const dl = $("#dl_hardware_info", form) || Object.assign(document.createElement("datalist"), {id: "dl_hardware_info"});
+  if (!dl.parentNode) { form.append(dl); ti.setAttribute("list", "dl_hardware_info"); }
+  const have = new Set($$("option", dl).map(o => o.value));
+  dl.insertAdjacentHTML("afterbegin", cat.types.filter(t => t.active && !have.has(t.name)).map(t => `<option value="${esc(t.name)}">${esc(t.category)}</option>`).join(""));
+  const hint = document.createElement("div"); hint.className = "small muted"; ti.after(hint);
+  let tm;
+  const upd = () => { clearTimeout(tm); tm = setTimeout(async () => {
+    const r = ti.value.trim() ? await api("/api/catalog/next?" + qs({type: ti.value})).catch(() => ({})) : {};
+    if (r.category) {
+      hint.innerHTML = `Kategori: <b>${esc(r.category)}</b>${isNew ? ` · sıradaki numara: <b class="mono">${esc(r.code)}</b>` : ""}`;
+      if (ki && (!ki.value || ki.dataset.auto)) { ki.value = r.category; ki.dataset.auto = "1"; }
+      if (isNew && ci) ci.placeholder = "Otomatik: " + r.code;
+    } else {
+      hint.textContent = ti.value.trim() ? "Bu tür tanımlı değil — barkodu elle girin veya Türler & Kategoriler'den ekleyin" : "";
+      if (isNew && ci) ci.placeholder = "Boş bırakılırsa türe göre otomatik";
+    }
+  }, 200); };
+  ti.addEventListener("input", upd); upd();
+}
+
+/* ---------- türler & kategoriler ---------- */
+PRO["/catalog"] = async v => {
+  const c = await api("/api/catalog"), ed = can("fields");
+  v.innerHTML = `<h1>Türler & Kategoriler</h1><div class="card small muted">Cihaz kaydında <b>Envanter Türü</b> seçildiğinde kategori otomatik atanır; barkod boş bırakılırsa o kategoriye ait <b>sıradaki numara</b> verilir (ör. BLG-00001, BLG-00002…). Elle girilen ve kalıba uyan numaralarda sayaç kendiliğinden ileri alınır; çakışan numara atlanır. Excel içe aktarmada “barkodu boş satırlara otomatik numara ver” seçeneği de aynı sayacı kullanır.</div>
+    <div class="grid g2"><div class="card"><h2>Kategoriler ve numara kalıbı</h2><div class="tw"><table><thead><tr><th>Kategori</th><th>Ön ek</th><th>Basamak</th><th>Sıradaki no</th><th>Örnek</th><th>Tür</th><th></th></tr></thead><tbody>
+      ${c.categories.map(k => `<tr data-c="${k.id}"><td><input data-k="name" value="${esc(k.name)}" ${ed ? "" : "disabled"} style="min-width:150px"></td><td><input data-k="prefix" value="${esc(k.prefix)}" ${ed ? "" : "disabled"} style="width:80px"></td>
+        <td><input data-k="digits" type="number" min="0" max="12" value="${k.digits}" ${ed ? "" : "disabled"} style="width:64px"></td><td><input data-k="next_no" type="number" min="1" value="${k.next_no}" ${ed ? "" : "disabled"} style="width:90px"></td>
+        <td class="mono small">${esc(k.next_code)}</td><td>${k.types}</td><td>${ed ? `<button class="btn s d" data-dc="${k.id}">Sil</button>` : ""}</td></tr>`).join("")}</tbody></table></div>
+      ${ed ? `<form id="nc" class="row" style="margin-top:10px"><input name="name" placeholder="Yeni kategori" required style="flex:1"><input name="prefix" placeholder="Ön ek (ör. MON-)" style="width:120px"><input name="digits" type="number" value="5" style="width:70px"><button class="btn">Ekle</button></form>` : ""}</div>
+    <div class="card"><h2>Envanter türleri</h2><div class="tw" style="max-height:560px"><table><thead><tr><th>Tür</th><th>Kategori</th><th>Eş adlar (Excel'deki farklı yazımlar)</th><th></th></tr></thead><tbody>
+      ${c.types.map(t => `<tr data-t="${t.id}"><td><input data-k="name" value="${esc(t.name)}" ${ed ? "" : "disabled"} style="min-width:160px"></td>
+        <td><select data-k="category_id" ${ed ? "" : "disabled"}>${c.categories.map(k => `<option value="${k.id}" ${k.id === t.category_id ? "selected" : ""}>${esc(k.name)}</option>`).join("")}</select></td>
+        <td><input data-k="aliases" value="${esc(t.aliases.join(", "))}" ${ed ? "" : "disabled"} placeholder="PC, kasa"></td><td>${ed ? `<button class="btn s d" data-dt="${t.id}">Sil</button>` : ""}</td></tr>`).join("")}</tbody></table></div>
+      ${ed ? `<form id="nt" class="row" style="margin-top:10px"><input name="name" placeholder="Yeni tür" required style="flex:1"><select name="category_id" style="width:200px">${c.categories.map(k => `<option value="${k.id}">${esc(k.name)}</option>`).join("")}</select><button class="btn">Ekle</button></form>` : ""}</div></div>`;
+  if (!ed) return;
+  $$("[data-c] [data-k]").forEach(el => el.onchange = async () => { const id = el.closest("[data-c]").dataset.c;
+    try { await api("/api/catalog/categories/" + id, {method: "PATCH", body: {[el.dataset.k]: el.type === "number" ? +el.value : el.value}}); toast("Kaydedildi"); route(); } catch (e) { fail(e); route(); } });
+  $$("[data-t] [data-k]").forEach(el => el.onchange = async () => { const id = el.closest("[data-t]").dataset.t;
+    let val = el.value; if (el.dataset.k === "aliases") val = val.split(",").map(x => x.trim()).filter(Boolean); if (el.dataset.k === "category_id") val = +val;
+    try { await api("/api/catalog/types/" + id, {method: "PATCH", body: {[el.dataset.k]: val}}); toast("Kaydedildi"); } catch (e) { fail(e); route(); } });
+  $$("[data-dc]").forEach(b => b.onclick = async () => { if (!confirm("Kategori silinsin mi?")) return; try { await api("/api/catalog/categories/" + b.dataset.dc, {method: "DELETE"}); route(); } catch (e) { fail(e); } });
+  $$("[data-dt]").forEach(b => b.onclick = async () => { if (!confirm("Tür silinsin mi? (Kayıtlardaki değer değişmez)")) return; await api("/api/catalog/types/" + b.dataset.dt, {method: "DELETE"}); route(); });
+  $("#nc").onsubmit = async e => { e.preventDefault(); const b = Object.fromEntries(new FormData(e.target)); b.digits = +b.digits;
+    try { await api("/api/catalog/categories", {method: "POST", body: b}); route(); } catch (err) { fail(err); } };
+  $("#nt").onsubmit = async e => { e.preventDefault(); const b = Object.fromEntries(new FormData(e.target)); b.category_id = +b.category_id;
+    try { await api("/api/catalog/types", {method: "POST", body: b}); route(); } catch (err) { fail(err); } };
+};
+
 /* ---------- toplu işlemler (liste) ve detay eklentileri ---------- */
 function bulkActions(el, ids) {
   if (!el) return;
@@ -363,7 +416,7 @@ PRO["/kb/:id"] = async (v, id) => {
 
 /* ---------- ağ & ajan ---------- */
 PRO["/network"] = async (v, p) => {
-  const tab = p.tab || "unknown";
+  const tab = p.tab || "hosts";
   const [n, st] = await Promise.all([api("/api/network"), api("/api/settings")]);
   const ag = tab === "agent" ? await api("/api/agent/reports") : [];
   const s = n.state, lr = s.last_result || {};
@@ -372,16 +425,23 @@ PRO["/network"] = async (v, p) => {
     <div class="grid g4"><div class="card stat"><div><div class="n">${n.seen_7d}</div><div class="l">Son 7 günde görülen MAC</div></div></div><div class="card stat"><div><div class="n">${n.matched}</div><div class="l">Envanterle eşleşen</div></div></div>
       <div class="card stat"><div><div class="n err">${n.unknown.length}</div><div class="l">Envanterde olmayan</div></div></div><div class="card stat"><div><div class="n">${n.stale.length}</div><div class="l">${n.stale_days} gündür görülmeyen</div></div></div></div>
     <p class="small muted">Son tarama: ${fmtDate(s.last_run) || "—"} ${lr.seconds ? `· ${lr.seconds} sn · ${lr.alive ?? 0} yanıt veren adres · ${lr.macs ?? 0} MAC` : ""} ${(lr.errors || []).length ? `<span class="err">· Hatalar: ${esc(lr.errors.join(" | "))}</span>` : ""}</p>
-    <div class="grid g2"><form class="card" id="nc"><h2>Tarama ayarları</h2><label class="f"><span>Taranacak ağlar (her satıra bir, ör. 10.10.1.0/24; en fazla /20)</span><textarea name="subnets" rows="3">${esc((n.config.subnets || []).join("\n"))}</textarea></label>
+    <div class="grid g2"><form class="card" id="nc"><h2>Tarama ayarları</h2><label class="f"><span>Taranacak bloklar — her satıra bir; isteğe bağlı ad verilebilir. Örnek: <span class="mono">Acil: 10.20.1.0/24</span> · <span class="mono">Poliklinik: 10.20.5.10-10.20.5.200</span> · <span class="mono">10.30.0.0/22</span> · <span class="mono">10.40.1.7</span> (toplam en fazla 16.384 adres)</span><textarea name="subnets" rows="5">${esc((n.config.subnets || []).join("\n"))}</textarea></label>
       <div class="grid g2"><label class="f"><span>Otomatik tarama (saat, 0 = kapalı)</span><input name="interval_hours" type="number" step="0.5" min="0" value="${n.config.interval_hours || 0}"></label>
       <label class="f"><span>“Görülmüyor” eşiği (gün)</span><input name="stale_days" type="number" min="1" value="${n.stale_days}"></label></div><button class="btn">Kaydet</button>
-      <p class="small muted">Ping taraması sunucunun ARP tablosunu doldurur (yalnızca aynı VLAN'daki cihazların MAC'i görülür). Diğer VLAN'lar ve port bilgisi için switch/yönlendiricileri SNMP ile ekleyin.</p></form>
+      <p class="small muted">Her blok, sunucunun kendi ağı olmasa da taranır: ping'e yanıt vermeyen cihazlar yaygın portlar (445, 3389, 80, 443, 22, 9100…) denenerek bulunur; Windows cihazlardan NetBIOS ile ad ve MAC alınır. Farklı VLAN'lardaki diğer cihazların MAC/port bilgisi için switch/yönlendiricileri SNMP ile ekleyin. Sunucuyla bloklar arasında güvenlik duvarı ICMP/portları engelliyorsa o cihazlar görünmez.</p></form>
     <div class="card"><h2>SNMP cihazları (switch / yönlendirici)</h2><table><tr><th>Ad</th><th>Adres</th><th>Son okuma</th><th></th></tr>${n.switches.map(w => `<tr><td>${esc(w.name || "")}</td><td class="mono">${esc(w.host)}</td>
       <td class="small ${w.last_error ? "err" : ""}">${fmtDate(w.last_poll) || "—"} ${esc(w.last_error || "")}</td><td><button class="btn s d" data-del="${w.id}">Sil</button></td></tr>`).join("")}</table>
       <form id="sw" class="row" style="margin-top:10px"><input name="name" placeholder="Ad" style="width:120px"><input name="host" placeholder="IP adresi" required style="width:140px"><input name="community" placeholder="community (public)" style="width:160px"><button class="btn">Ekle</button></form>
       <p class="small muted">Salt-okuma SNMP v2c. Okunanlar: BRIDGE-MIB/Q-BRIDGE MAC tablosu, port adları, ARP tablosu. En az MAC barındıran port cihazın bağlı olduğu port kabul edilir (uplink'ler elenir).</p></div></div>
-    <div class="card"><div class="steps">${[["unknown", `Envanterde olmayan (${n.unknown.length})`], ["stale", `Görülmeyen (${n.stale.length})`], ["agent", "PC ajanı"]].map(([k, l]) => `<a href="#/network?tab=${k}"><span class="${tab === k ? "on" : ""}">${l}</span></a>`).join("")}</div>
-    ${tab === "unknown" ? `<div class="tw"><table><thead><tr><th>MAC</th><th>IP</th><th>Ad</th><th>Switch / port</th><th>İlk / son görülme</th><th></th></tr></thead><tbody>${n.unknown.map(x => `<tr><td class="mono small">${x.mac}</td><td>${esc(x.ip || "")}</td><td class="small">${esc(x.hostname || "")}</td>
+    ${n.blocks.length ? `<div class="card"><h2>Bloklar</h2><table><tr><th>Blok</th><th>Hedef</th><th>Adres</th><th>Bulunan</th><th>Envanterle eşleşen</th><th>Eşleşmeyen</th></tr>${n.blocks.map(b => `<tr><td><a href="#/network?tab=hosts&block=${encodeURIComponent(b.name)}"><b>${esc(b.name)}</b></a></td><td class="mono small">${esc(b.target || "")}</td><td>${b.size ?? ""}</td><td>${b.alive}</td><td>${b.matched}</td><td class="${b.alive - b.matched ? "err" : ""}">${b.alive - b.matched}</td></tr>`).join("")}</table></div>` : ""}
+    <div class="card"><div class="steps">${[["hosts", `Bulunan cihazlar (${n.hosts.length})`], ["unknown", `MAC: envanterde olmayan (${n.unknown.length})`], ["stale", `Görülmeyen (${n.stale.length})`], ["agent", "PC ajanı"]].map(([k, l]) => `<a href="#/network?tab=${k}"><span class="${tab === k ? "on" : ""}">${l}</span></a>`).join("")}</div>
+    ${tab === "hosts" ? (() => { const hs = n.hosts.filter(h => (!p.block || h.block === p.block) && (!p.unk || !h.asset));
+      return `<div class="row" style="margin-bottom:8px"><select id="hb" style="max-width:240px"><option value="">Tüm bloklar</option>${n.blocks.map(b => `<option ${p.block === b.name ? "selected" : ""}>${esc(b.name)}</option>`).join("")}</select>
+        <label class="row small"><input type="checkbox" id="hu" ${p.unk ? "checked" : ""}> Yalnızca envanterde olmayanlar</label><span class="sp"></span><span class="muted small">${hs.length} cihaz</span></div>
+      <div class="tw"><table><thead><tr><th>IP</th><th>Ad</th><th>MAC</th><th>Tahmin</th><th>Açık portlar</th><th>Blok</th><th>Son görülme</th><th>Envanter</th></tr></thead><tbody>${hs.map(h => `<tr><td class="mono">${esc(h.ip)}</td>
+        <td class="small">${esc(h.netbios || h.hostname || "")}</td><td class="mono small">${esc(h.mac || "")}</td><td class="small">${esc(h.kind)}</td><td class="small mono">${esc(h.ports || "")}</td><td class="small">${esc(h.block || "")}</td><td class="small">${fmtDate(h.last_seen)}</td>
+        <td>${h.asset ? `<a href="#/asset/${h.asset.id}">${esc(h.asset.asset_code)}</a>` : can("asset.write") ? `<a class="btn s" href="#/new?${qs({mac_address: h.mac || "", ip_address: h.ip, hostname: h.netbios || (h.hostname || "").split(".")[0], hardware_info: h.kind === "Yazıcı" ? "Yazıcı" : ""})}">Envantere ekle</a>` : ""}</td></tr>`).join("") || "<tr><td colspan=8 class=muted>Henüz cihaz bulunmadı. Blok ekleyip “Şimdi tara”ya basın.</td></tr>"}</tbody></table></div>`; })()
+    : tab === "unknown" ? `<div class="tw"><table><thead><tr><th>MAC</th><th>IP</th><th>Ad</th><th>Switch / port</th><th>İlk / son görülme</th><th></th></tr></thead><tbody>${n.unknown.map(x => `<tr><td class="mono small">${x.mac}</td><td>${esc(x.ip || "")}</td><td class="small">${esc(x.hostname || "")}</td>
       <td class="small">${esc(x.switch || "")} ${esc(x.port || "")}${x.vlan ? " · VLAN " + esc(x.vlan) : ""}</td><td class="small">${fmtDate(x.first_seen)} / ${fmtDate(x.last_seen)}</td>
       <td>${can("asset.write") ? `<a class="btn s" href="#/new?${qs({mac_address: x.mac, ip_address: x.ip || "", hostname: (x.hostname || "").split(".")[0]})}">Envantere ekle</a>` : ""}</td></tr>`).join("") || "<tr><td colspan=6 class=muted>Yok</td></tr>"}</tbody></table></div>`
     : tab === "stale" ? `<div class="tw"><table><thead><tr><th>Barkod</th><th>Cihaz</th><th>MAC</th><th>Son görülme</th></tr></thead><tbody>${n.stale.map(x => `<tr><td><a href="#/asset/${x.id}">${esc(x.asset_code)}</a></td><td class="small">${esc(x.brand_model || "")}</td><td class="mono small">${x.mac}</td><td class="small">${fmtDate(x.last_seen) || "hiç"}</td></tr>`).join("") || "<tr><td colspan=4 class=muted>Yok</td></tr>"}</tbody></table></div>`
@@ -392,8 +452,9 @@ PRO["/network"] = async (v, p) => {
       ${ag.map(r => `<tr><td><b>${esc(r.hostname)}</b></td><td class="small mono">${esc(r.serial || "")}</td><td class="small">${esc((r.data.manufacturer || "") + " " + (r.data.model || ""))}<br><span class="muted">${esc(r.data.cpu || "")} · ${esc(r.data.ram_gb || "")} GB</span></td>
         <td class="small">${esc(r.data.user || "")}</td><td class="small">${esc((r.data.ips || []).join(", "))}</td><td class="small">${fmtDate(r.at)}</td>
         <td>${r.asset_id ? `<a href="#/asset/${r.asset_id}">${esc(r.asset_code)}</a>` : `<button class="btn s" data-link="${esc(r.hostname)}">Eşle / ekle</button>`}</td></tr>`).join("") || "<tr><td colspan=7 class=muted>Henüz bildirim yok</td></tr>"}</tbody></table></div>`}</div>`;
+  if ($("#hb")) { $("#hb").onchange = e => go("/network?" + qs({tab: "hosts", block: e.target.value, unk: p.unk || ""})); $("#hu").onchange = e => go("/network?" + qs({tab: "hosts", block: p.block || "", unk: e.target.checked ? 1 : ""})); }
   $("#scan").onclick = async () => { try { await api("/api/network/scan", {method: "POST"}); toast("Tarama başladı"); setTimeout(function poll() { if (location.hash.startsWith("#/network")) api("/api/network").then(x => x.state.running ? setTimeout(poll, 3000) : route()); }, 2000); route(); } catch (e) { fail(e); } };
-  $("#nc").onsubmit = async e => { e.preventDefault(); const b = Object.fromEntries(new FormData(e.target)); b.subnets = b.subnets.split(/\s+/).filter(Boolean);
+  $("#nc").onsubmit = async e => { e.preventDefault(); const b = Object.fromEntries(new FormData(e.target)); b.subnets = b.subnets.split("\n").map(x => x.trim()).filter(Boolean);
     try { await api("/api/network/config", {method: "PUT", body: b}); toast("Kaydedildi"); } catch (err) { fail(err); } };
   $("#sw").onsubmit = async e => { e.preventDefault(); try { await api("/api/network/switches", {method: "POST", body: Object.fromEntries(new FormData(e.target))}); route(); } catch (err) { fail(err); } };
   $$("[data-del]").forEach(b => b.onclick = async () => { if (confirm("Silinsin mi?")) { await api("/api/network/switches/" + b.dataset.del, {method: "DELETE"}); route(); } });

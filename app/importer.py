@@ -87,7 +87,7 @@ def analyze(token: str, sheet: str | None = None, header_row: int | None = None)
 
 
 def run(token, sheet, header_row: int, mapping: dict, new_fields: dict | None = None, mode="skip",
-        blank_overwrites=False, dry_run=True, user="?") -> dict:
+        blank_overwrites=False, dry_run=True, user="?", auto_code=False) -> dict:
     """mapping: {"<sütun index>": alan_key | "__ignore__" | "__new__"}; new_fields: {"<index>": {"label","type"}}
     mode: 'skip' (mevcut barkod atlanır) | 'update' (mevcut kayıt güncellenir)."""
     if mode not in ("skip", "update"):
@@ -95,8 +95,8 @@ def run(token, sheet, header_row: int, mapping: dict, new_fields: dict | None = 
     keys = [v for v in mapping.values() if v not in (IGNORE, NEW)]
     if len(keys) != len(set(keys)):
         raise ValueError("Bir alan birden fazla sütuna eşlenmiş")
-    if "asset_code" not in keys:
-        raise ValueError("Barkod / Envanter No sütunu eşlenmeli")
+    if "asset_code" not in keys and not (auto_code and "hardware_info" in keys):
+        raise ValueError("Barkod / Envanter No sütunu eşlenmeli (ya da tür sütunu + otomatik numara seçilmeli)")
     meta = json.loads((DIRS.tmp / f"imp_{token}.json").read_text(encoding="utf-8"))
     wb = _open(token)
     report, st = [], {"rows": 0, "inserted": 0, "updated": 0, "unchanged": 0, "skipped": 0, "errors": 0, "blank": 0,
@@ -132,9 +132,23 @@ def run(token, sheet, header_row: int, mapping: dict, new_fields: dict | None = 
                 def rep(res, msg=""):
                     report.append({"row": rno, "asset_code": code, "result": res, "message": msg})
 
+                if not code and auto_code:
+                    from . import catalog
+                    cat = catalog.resolve(payload.get("hardware_info"))
+                    if cat:  # türden kategori bulundu: ardışık numara create() içinde verilir
+                        try:
+                            res = A.create({**payload, "asset_code": None}, user, source_import=job_id, t=t)
+                            code = t.execute("SELECT asset_code FROM assets WHERE id=?", (res["id"],)).fetchone()[0]
+                            st["inserted"] += 1
+                            rep("eklendi", f"Otomatik numara ({cat['category']})")
+                        except A.AssetError as e:
+                            st["errors"] += 1
+                            det = e.extra.get("fields")
+                            rep("hata", "; ".join(det.values()) if det else e.msg)
+                        continue
                 if not code:
                     st["errors"] += 1
-                    rep("hata", "Barkod boş")
+                    rep("hata", "Barkod boş" + (" ve tür tanınmadı" if auto_code else ""))
                     continue
                 if header_key(code) in seen:
                     st["errors"] += 1

@@ -183,7 +183,46 @@ def init():
             import secrets
             t.execute("INSERT OR IGNORE INTO settings VALUES('agent_token',?)", (json.dumps(secrets.token_urlsafe(24)),))
         c.execute("PRAGMA user_version=2")
-    # Gelecek geçişler: if ver < 3: ...
+    if ver < 3:
+        with tx() as t:
+            for stmt in SCHEMA_V3.split(";"):
+                if stmt.strip():
+                    t.execute(stmt)
+            t.execute("INSERT OR IGNORE INTO fields(key,label,type,aliases,show_list,show_preview,public,sort)"
+                      " VALUES('category','Kategori','text',?,1,1,1,15)", (json.dumps(["kategori", "grup", "sinif"]),))
+            # "Donanım Bilgisi" alanı envanter türü olarak kullanılır (Excel eş adları korunur)
+            t.execute("UPDATE fields SET label='Envanter Türü' WHERE key='hardware_info' AND label='Donanım Bilgisi'")
+            t.execute("UPDATE fields SET aliases=? WHERE key='hardware_info'",
+                      (json.dumps(["donanim", "donanim bilgisi", "cihaz turu", "tur", "envanter turu", "cihaz tipi", "tip"]),))
+            for name, prefix in CATEGORIES_V3:
+                t.execute("INSERT OR IGNORE INTO asset_categories(name,prefix,digits,next_no) VALUES(?,?,5,1)", (name, prefix))
+            for name, cat in TYPES_V3:
+                t.execute("INSERT OR IGNORE INTO asset_types(name,category_id) SELECT ?, id FROM asset_categories WHERE name=?",
+                          (name, cat))
+        c.execute("PRAGMA user_version=3")
+    # Gelecek geçişler: if ver < 4: ...
+
+
+SCHEMA_V3 = """
+CREATE TABLE asset_categories (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE, prefix TEXT NOT NULL DEFAULT '',
+  digits INTEGER NOT NULL DEFAULT 5, next_no INTEGER NOT NULL DEFAULT 1, active INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE asset_types (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE, category_id INTEGER NOT NULL,
+  aliases TEXT NOT NULL DEFAULT '[]', active INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE net_hosts (ip TEXT PRIMARY KEY, mac TEXT, hostname TEXT, netbios TEXT, block TEXT, ports TEXT, method TEXT,
+  first_seen TEXT NOT NULL, last_seen TEXT NOT NULL);
+CREATE INDEX ix_net_hosts_block ON net_hosts(block, last_seen)
+"""
+
+# Başlangıç önerisi — Türler & Kategoriler ekranından değiştirilebilir/silinebilir
+CATEGORIES_V3 = [("Bilgisayar", "BLG-"), ("Yazıcı ve Tarayıcı", "YZC-"), ("Monitör", "MON-"), ("Ağ Cihazı", "AG-"),
+                 ("Sunucu ve Depolama", "SNC-"), ("Çevre Birimi", "CVR-"), ("Güç ve Altyapı", "GUC-"), ("Diğer", "DGR-")]
+TYPES_V3 = [("Masaüstü Bilgisayar", "Bilgisayar"), ("Dizüstü Bilgisayar", "Bilgisayar"), ("All-in-One Bilgisayar", "Bilgisayar"),
+            ("İnce İstemci", "Bilgisayar"), ("Yazıcı", "Yazıcı ve Tarayıcı"), ("Etiket Yazıcısı", "Yazıcı ve Tarayıcı"),
+            ("Barkod Yazıcısı", "Yazıcı ve Tarayıcı"), ("Tarayıcı", "Yazıcı ve Tarayıcı"), ("Monitör", "Monitör"),
+            ("Switch", "Ağ Cihazı"), ("Kablosuz Erişim Noktası", "Ağ Cihazı"), ("Router / Güvenlik Duvarı", "Ağ Cihazı"),
+            ("IP Telefon", "Ağ Cihazı"), ("Sunucu", "Sunucu ve Depolama"), ("NAS / Depolama", "Sunucu ve Depolama"),
+            ("Barkod Okuyucu", "Çevre Birimi"), ("Projeksiyon", "Çevre Birimi"), ("Kamera", "Çevre Birimi"),
+            ("UPS", "Güç ve Altyapı"), ("Kiosk", "Diğer")]
 
 
 SCHEMA_V2 = """

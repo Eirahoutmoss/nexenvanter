@@ -317,7 +317,7 @@ async def import_run(req: Request, u=Depends(need("import"))):
     b = await body(req)
     return importer.run(b["token"], b.get("sheet"), int(b.get("header_row") or 1), b.get("mapping") or {},
                         b.get("new_fields"), b.get("mode", "skip"), bool(b.get("blank_overwrites")),
-                        bool(b.get("dry_run", True)), u["username"])
+                        bool(b.get("dry_run", True)), u["username"], bool(b.get("auto_code")))
 
 
 @app.get("/api/import/jobs")
@@ -334,7 +334,8 @@ def import_report(jid: int, u=Depends(need("import"))):
 @app.get("/api/labels/template")
 def get_tpl(u=Depends(need("asset.read"))):
     return {"template": labels.get_template(), "default": labels.DEFAULT_TEMPLATE,
-            "logos": {s: labels.logo_path(s).exists() for s in ("left", "right")}}
+            "logos": {s: labels.logo_path(s).exists() for s in ("left", "right")},
+            "fonts": labels.available_families(), "presets": labels.PRESETS}
 
 
 @app.put("/api/labels/template")
@@ -345,7 +346,7 @@ async def put_tpl(req: Request, u=Depends(need("labels"))):
     for k in ("width_mm", "height_mm"):
         if not (5 <= float(t.get(k, 0)) <= 300):
             raise ApiError(400, "BAD_REQUEST", "Etiket ölçüsü 5–300 mm aralığında olmalı")
-    db.set_setting("label_template", t)
+    db.set_setting("label_template", labels.normalize(t))
     db.audit(u["username"], "label_template", None, None, ip(req))
     return labels.get_template()
 
@@ -389,7 +390,9 @@ async def label_png_draft(req: Request, u=Depends(need("asset.read"))):
     b = await body(req)
     aid = int(b.get("asset_id") or 0)
     a = _sample_asset() if not aid else _asset_or_404(aid)
-    tpl = {**labels.DEFAULT_TEMPLATE, **(b.get("template") or {})}
+    tpl = labels.normalize(b.get("template") or {})
+    if b.get("calibration"):
+        return Response(labels.png(labels.calibration(tpl)), media_type="image/png")
     return Response(labels.png(labels.render(a, qr_url(a), tpl)), media_type="image/png")
 
 
@@ -402,10 +405,14 @@ def _ids(s) -> list[int]:
     return ids
 
 
+def _assets_for(ids):
+    items = {a["id"]: a for a in A.query(ids=ids, archived="all", size=len(ids))["items"]}
+    return [items[i] for i in ids if i in items]
+
+
 def _render_many(ids):
     tpl, s = labels.get_template(), db.all_settings()
-    items = {a["id"]: a for a in A.query(ids=ids, archived="all", size=len(ids))["items"]}
-    return [labels.render(items[i], qr_url(items[i]), tpl, s) for i in ids if i in items], tpl
+    return [labels.render(a, qr_url(a), tpl, s) for a in _assets_for(ids)], tpl
 
 
 @app.get("/api/labels/pdf")
@@ -435,7 +442,7 @@ def printer_status(name: str, adapter: str = "windows", u=Depends(need("print"))
 @app.post("/api/print")
 async def do_print(req: Request, u=Depends(need("print"))):
     b = await body(req)
-    lst = _ids(b.get("ids"))
+    lst = [] if b.get("calibration") else _ids(b.get("ids"))
     copies = max(1, min(int(b.get("copies") or 1), 20))
     a = printing.ADAPTERS.get(b.get("adapter") or "windows")
     if not a or not a.available():
@@ -446,9 +453,17 @@ async def do_print(req: Request, u=Depends(need("print"))):
     c = db.conn()
     jid = c.execute("INSERT INTO print_jobs(at,user,printer,adapter,asset_ids,copies,status) VALUES(?,?,?,?,?,?,?)",
                     (db.now(), u["username"], printer, a.id, json.dumps(lst), copies, "printing")).lastrowid
-    imgs, tpl = _render_many(lst)
+    tpl, s = labels.get_template(), db.all_settings()
+    items = _assets_for(lst)
+    if b.get("calibration"):
+        render = lambda i, dpi: labels.calibration(tpl, dpi)  # noqa: E731
+        items = [None]
+    else:
+        render = lambda i, dpi: labels.render(items[i], qr_url(items[i]), tpl, s, dpi=dpi)  # noqa: E731
+    imgs = items
     try:
-        a.print_images(printer, imgs, float(tpl["width_mm"]), float(tpl["height_mm"]), copies)
+        a.print_labels(printer, render, float(tpl["width_mm"]), float(tpl["height_mm"]), len(items), copies,
+                       printing.get_profile(printer))
     except Exception as e:
         c.execute("UPDATE print_jobs SET status='failed', error=? WHERE id=?", (str(e), jid))
         raise ApiError(503, "PRINT_FAILED", str(e), {"job_id": jid})
@@ -458,6 +473,48 @@ async def do_print(req: Request, u=Depends(need("print"))):
         A.add_event(i, u["username"], "label_print", f"{printer} ×{copies}")
     db.audit(u["username"], "print", jid, {"count": len(imgs), "printer": printer}, ip(req))
     return {"ok": True, "job_id": jid, "count": len(imgs)}
+
+
+@app.get("/api/printers/profile")
+def printer_profile(name: str, u=Depends(need("print"))):
+    return printing.get_profile(name)
+
+
+@app.put("/api/printers/profile")
+async def printer_profile_put(req: Request, u=Depends(need("labels"))):
+    b = await body(req)
+    p = printing.save_profile(b.get("name") or "", b.get("profile") or {})
+    db.audit(u["username"], "printer_profile", b.get("name"), p, ip(req))
+    return p
+
+
+def _win_adapter():
+    a = printing.ADAPTERS.get("windows")
+    if not a or not a.available():
+        raise ApiError(400, "NO_ADAPTER", "Doğrudan yazdırma yalnızca Windows'ta kullanılabilir")
+    return a
+
+
+@app.get("/api/printers/info")
+def printer_info(name: str, u=Depends(need("print"))):
+    tpl = labels.get_template()
+    return _win_adapter().info(name, float(tpl["width_mm"]), float(tpl["height_mm"]), printing.get_profile(name))
+
+
+@app.post("/api/printers/form")
+async def printer_add_form(req: Request, u=Depends(need("labels"))):
+    tpl = labels.get_template()
+    name = f"NexEnvanter {tpl['width_mm']:g}x{tpl['height_mm']:g}"
+    _win_adapter().add_form(name, float(tpl["width_mm"]), float(tpl["height_mm"]))
+    db.audit(u["username"], "printer_form", name, ip=ip(req))
+    return {"name": name, "message": f"'{name}' kağıt formu Windows'a eklendi. Yazıcı profilinde seçebilirsiniz."}
+
+
+@app.get("/api/labels/calibration.pdf")
+def label_calibration_pdf(u=Depends(need("print"))):
+    tpl = labels.get_template()
+    return Response(labels.pdf([labels.calibration(tpl)], int(tpl["dpi"])), media_type="application/pdf",
+                    headers={"Content-Disposition": 'inline; filename="kalibrasyon.pdf"'})
 
 
 @app.get("/api/print/jobs")

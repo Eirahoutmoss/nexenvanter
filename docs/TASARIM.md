@@ -214,6 +214,17 @@ Hata biçimi: `{"error": {"code": "...", "message": "..."}}` — `VALIDATION_ERR
 5. Logo dosyalarının yüksek çözünürlüklü, kullanım izni olan sürümü.
 6. Kimlik: yerel kullanıcı (şu an) mı, Active Directory mi?
 
+## 13b. v0.3 eklemeleri
+
+| Konu | Çözüm |
+|---|---|
+| **Tür → kategori → ardışık numara** | `asset_categories` (ön ek, basamak, sıradaki no) + `asset_types` (kategoriye bağlı, eş adlar). Envanter Türü seçilince Kategori alanı dolar; barkod boşsa kategoriye ait sıradaki numara verilir (ör. `BLG-00001`). Elle girilen ve kalıba uyan numara sayacı ileri alır, çakışan numara atlanır. Excel'de “barkodu boş satırlara otomatik numara ver”. Ekran: Türler & Kategoriler |
+| **Yazı stilleri** | Öğe başına (üst bant, alt başlık, satır başlıkları, bilgi değerleri, QR altı no) yazı tipi (bilgisayarda yüklü olanlar), boyut (pt, 0 = otomatik sığdır), kalın, hiza. Başlık sütunu (% hizalı) veya yan yana; ayraç; uzun değerler 2 satıra bölünür; tüm satırlarda ortak yazı boyutu |
+| **Baskı kalitesi** | Etiket yazıcının kendi DPI'ında yeniden çizilir, saf siyah-beyaza eşiklenir (gri kenar yumuşatma yok), ölçeklenmeden 1:1 gönderilir; koyuluk eşiği ve 0–3 kalınlaştırma (kontur); varsayılan kalın yazı. Kalın dosyası olmayan yazı tiplerinde sentetik kalınlaştırma |
+| **Ağ blokları** | `Ad: hedef` biçiminde birden çok blok (CIDR, aralık, tek IP; toplam ≤16.384). Ping'e yanıt vermeyenler port denemesiyle (445, 135, 80, 443, 22, 3389, 9100, 515, 631) bulunur; NetBIOS (UDP 137) ile yönlendirilmiş ağlarda da ad + MAC. `net_hosts` tablosu; blok özeti, cihaz türü tahmini, IP/MAC/ad ile envanter eşleşmesi |
+| **80×40 mm / kağıt boyutu** | Yazıcı profili (yazıcı başına): özel kağıt (DEVMODE), sürücü kağıdı veya sürücü formu; şerit genişliği; döndürme (otomatik/0/90/180/270); sığdır/birebir; X/Y kaydırma. “Sürücüyü denetle” basılabilir alanı ve ölçeği gösterir, uygun kağıdı önerir; “Windows'a 80×40 kağıt ekle” (AddForm); kalibrasyon etiketi (cetvel + çerçeve). **Brother PT-P900Wc en fazla 36 mm şerit alır, basılabilir yükseklik ~32 mm**: 80×40 bu yazıcıda ancak ~%80 küçültülerek basılır; birebir 40 mm için daha geniş ortam destekleyen yazıcı gerekir |
+| **Ek** | Code128 barkod şeridi (el tipi okuyucular için), hazır ölçüler (80×40, 80×36, 70×36, 60×24, 62×29, 100×50), kalibrasyon PDF |
+
 ## 14. Sonraki adımlar
 
 1. Lisanslı derleme: `tools/license_tool.py keygen` → `PUBLIC_KEY`, `ENFORCE=True`.

@@ -42,8 +42,8 @@ const NAV = [
   ["-", "Analiz"],
   ["/network", "⇄", "Ağ & Ajan", "network"], ["/reports", "▥", "Raporlar", "reports"], ["/federation", "⌘", "Kurumlar", "federation"],
   ["-", "Yönetim"],
-  ["/import", "⇪", "Excel İşlemleri", "import"], ["/labels", "▦", "Etiket & Yazıcı", "print"], ["/fields", "☰", "Alanlar", "fields"],
-  ["/users", "☺", "Kullanıcılar", "users"], ["/audit", "⌕", "Denetim Kaydı", "audit"], ["/settings", "⚙", "Ayarlar", "asset.read"],
+  ["/import", "⇪", "Excel İşlemleri", "import"], ["/labels", "▦", "Etiket & Yazıcı", "print"], ["/catalog", "▧", "Türler & Kategoriler", "asset.read"],
+  ["/fields", "☰", "Alanlar", "fields"], ["/users", "☺", "Kullanıcılar", "users"], ["/audit", "⌕", "Denetim Kaydı", "audit"], ["/settings", "⚙", "Ayarlar", "asset.read"],
 ];
 function navHtml() {
   const items = NAV.filter(n => n[0] === "-" || can(n[3]));
@@ -214,7 +214,7 @@ function input(f, val) {
   if (f.type === "date") return `<input ${n} type="date" value="${v}">`;
   if (f.type === "select") { const o = f.key === "status" ? S.state.statuses : f.options;
     return `<select ${n}>${f.key === "status" ? "" : "<option value=''></option>"}${o.map(x => `<option ${x === val ? "selected" : ""}>${esc(x)}</option>`).join("")}</select>`; }
-  return `<input ${n} value="${v}" ${f.type === "mac" ? 'placeholder="AA:BB:CC:DD:EE:FF"' : ""} ${f.type === "text" ? `list="dl_${f.key}"` : ""} ${f.key === "asset_code" ? "required" : ""}>`;
+  return `<input ${n} value="${v}" ${f.type === "mac" ? 'placeholder="AA:BB:CC:DD:EE:FF"' : ""} ${f.type === "text" ? `list="dl_${f.key}"` : ""} ${f.key === "asset_code" ? 'placeholder="Boş bırakılırsa türe göre otomatik"' : ""}>`;
 }
 async function assetForm(v, a, pre = {}) {
   const isNew = !a;
@@ -226,6 +226,7 @@ async function assetForm(v, a, pre = {}) {
     <div class="row"><button class="btn p">${isNew ? "Kaydet" : "Değişiklikleri kaydet"}</button>
     ${isNew ? `<label class="row small"><input type="checkbox" id="again"> Kaydettikten sonra yeni kayda devam et</label>` : ""}
     <span class="sp"></span><a class="btn" href="#${isNew ? "/assets" : "/asset/" + a.id}">Vazgeç</a></div></form>`;
+  formPro($("#af"), isNew);
   $("#af").onsubmit = async e => {
     e.preventDefault(); $$("[data-e]").forEach(x => x.textContent = "");
     const body = Object.fromEntries(new FormData(e.target));
@@ -300,7 +301,8 @@ function mapping(an) {
       <td><div class="row nf" data-i="${c.index}" style="${c.suggestion === "__new__" ? "" : "display:none"}"><input class="nfl" value="${esc(c.header)}" style="width:160px"><select class="nft" style="width:110px"><option value="text">Metin</option><option value="longtext">Uzun metin</option><option value="date">Tarih</option><option value="number">Sayı</option><option value="mac">MAC</option></select></div></td>
       <td class="small muted">${an.sample.slice(0, 3).map(r => esc(r[c.index] ?? "")).filter(Boolean).join(" · ")}</td></tr>`).join("")}</tbody></table></div>
     <div class="row" style="margin-top:14px"><label class="f" style="margin:0;width:280px"><span>Barkod sistemde zaten varsa</span><select id="mode"><option value="skip">Atla (mevcut kayda dokunma)</option><option value="update">Mevcut kaydı güncelle</option></select></label>
-    <label class="row small" style="align-self:flex-end"><input type="checkbox" id="bo"> Boş hücreler mevcut değeri silsin</label><span class="sp"></span>
+    <label class="row small" style="align-self:flex-end"><input type="checkbox" id="bo"> Boş hücreler mevcut değeri silsin</label>
+    <label class="row small" style="align-self:flex-end"><input type="checkbox" id="ac" checked> Barkodu boş satırlara türe göre otomatik numara ver</label><span class="sp"></span>
     <button class="btn" id="dry">Deneme (kaydetmeden)</button><button class="btn p" id="go">İçe aktar</button></div><div id="res"></div>`;
   $$(".mp").forEach(s => s.onchange = () => { $(`.nf[data-i="${s.dataset.i}"]`).style.display = s.value === "__new__" ? "" : "none"; });
   const reanalyze = async () => { try { mapping(await api("/api/import/analyze", {method: "POST", body: {token: an.token, sheet: $("#sh").value, header_row: +$("#hr").value}})); } catch (e) { fail(e); } };
@@ -311,7 +313,7 @@ function mapping(an) {
     $$(".mp").forEach(s => { map[s.dataset.i] = s.value; if (s.value === "__new__") { const r = $(`.nf[data-i="${s.dataset.i}"]`); nf[s.dataset.i] = {label: $(".nfl", r).value, type: $(".nft", r).value}; } });
     if (!dry && !confirm("Veriler veritabanına yazılacak. Devam edilsin mi?")) return;
     try {
-      const r = await api("/api/import/run", {method: "POST", body: {token: an.token, sheet: $("#sh").value, header_row: +$("#hr").value, mapping: map, new_fields: nf, mode: $("#mode").value, blank_overwrites: $("#bo").checked, dry_run: dry}});
+      const r = await api("/api/import/run", {method: "POST", body: {token: an.token, sheet: $("#sh").value, header_row: +$("#hr").value, mapping: map, new_fields: nf, mode: $("#mode").value, blank_overwrites: $("#bo").checked, auto_code: $("#ac").checked, dry_run: dry}});
       $$(".steps span").forEach((s, i) => s.classList.toggle("on", i === (dry ? 2 : 3)));
       const st = r.stats;
       $("#res").innerHTML = `<h3>${dry ? "Deneme sonucu (hiçbir şey kaydedilmedi)" : "İçe aktarma tamamlandı"}</h3>
@@ -327,74 +329,7 @@ function mapping(an) {
   $("#go").onclick = () => run(false);
 }
 
-/* ---------------- etiket & yazıcı ---------------- */
-async function labelsPage(v, p) {
-  const ids = (p.ids || "").split(",").filter(Boolean);
-  const [T, P, jobs] = await Promise.all([api("/api/labels/template"), can("print") ? api("/api/printers") : {printers: [], adapters: []}, api("/api/print/jobs")]);
-  const t = T.template, editable = can("labels");
-  const fieldOpts = sel => S.fields.map(f => `<option value="${f.key}" ${sel === f.key ? "selected" : ""}>${esc(f.label)}</option>`).join("");
-  const rowHtml = r => `<div class="row lr" style="margin-bottom:6px"><input class="rl" value="${esc(r.label)}" placeholder="Etiket metni" style="width:180px"><select class="rf" style="width:200px">${fieldOpts(r.field)}</select><button type="button" class="btn s rdel">✕</button></div>`;
-  v.innerHTML = `<h1>Etiket & Yazıcı</h1>
-    ${ids.length ? `<div class="card"><h2>Yazdır: ${ids.length} etiket</h2><div class="row">
-      <select id="prn" style="max-width:320px">${P.printers.map(x => `<option data-a="${x.adapter}" ${x.name === P.default || (!P.default && x.default) ? "selected" : ""}>${esc(x.name)}</option>`).join("") || "<option value=''>Doğrudan yazıcı yok (PDF kullanın)</option>"}</select>
-      <label class="f" style="margin:0;width:90px"><input id="cp" type="number" min="1" max="20" value="1" title="Kopya"></label>
-      <button class="btn p" id="doprint" ${P.printers.length ? "" : "disabled"}>▦ Yazdır</button><button class="btn" id="pdf">⇩ PDF</button><button class="btn s" id="pst">Durum</button>
-      <span class="sp"></span><button class="btn s" id="clr">Seçimi temizle</button></div>
-      <div class="row" style="margin-top:12px">${ids.slice(0, 6).map(i => `<img class="lbl-prev" style="width:230px" src="/api/labels/preview/${i}.png">`).join("")}${ids.length > 6 ? `<span class="muted">+${ids.length - 6}</span>` : ""}</div>
-      <p class="small muted">Not: "Gönderildi" durumu fiziksel baskının başarılı olduğunu kanıtlamaz; ilk baskıda QR'ı telefonla okutun.</p></div>` : ""}
-    <div class="grid g2"><form class="card" id="tf"><h2>Etiket şablonu</h2><fieldset ${editable ? "" : "disabled"} style="border:0;padding:0;margin:0">
-      <div class="grid g4"><label class="f"><span>Genişlik (mm)</span><input name="width_mm" type="number" step="0.5" value="${t.width_mm}"></label>
-      <label class="f"><span>Yükseklik (mm)</span><input name="height_mm" type="number" step="0.5" value="${t.height_mm}"></label>
-      <label class="f"><span>DPI</span><select name="dpi">${[180, 203, 300, 360, 600, 720].map(d => `<option ${+t.dpi === d ? "selected" : ""}>${d}</option>`).join("")}</select></label>
-      <label class="f"><span>Kenar (mm)</span><input name="margin_mm" type="number" step="0.1" value="${t.margin_mm}"></label></div>
-      <label class="f"><span>Üst bant metni ({org_name} = kurum adı)</span><input name="h_text" value="${esc(t.header.text)}"></label>
-      <div class="row small"><label><input type="checkbox" name="h_en" ${t.header.enabled ? "checked" : ""}> Üst bant</label><label><input type="checkbox" name="h_inv" ${t.header.inverted ? "checked" : ""}> Siyah zemin</label>
-        <label><input type="checkbox" name="logo_left" ${t.logo_left ? "checked" : ""}> Sol logo</label><label><input type="checkbox" name="logo_right" ${t.logo_right ? "checked" : ""}> Sağ logo</label>
-        <label><input type="checkbox" name="uppercase" ${t.uppercase ? "checked" : ""}> BÜYÜK HARF</label><label><input type="checkbox" name="border" ${t.border ? "checked" : ""}> Çerçeve</label></div>
-      <label class="f" style="margin-top:10px"><span>Alt başlık satırları (her satır ayrı; {unit_name}, {system_title})</span><textarea name="s_lines" rows="2">${esc(t.subheader.lines.join("\n"))}</textarea></label>
-      <label class="row small"><input type="checkbox" name="s_en" ${t.subheader.enabled ? "checked" : ""}> Alt başlık</label>
-      <h3>Bilgi satırları</h3><div id="rows">${t.rows.map(rowHtml).join("")}</div><button type="button" class="btn s" id="radd">＋ Satır</button>
-      <h3>QR</h3><div class="row small"><label><input type="checkbox" name="q_en" ${t.qr.enabled ? "checked" : ""}> QR kod</label><label><input type="checkbox" name="q_code" ${t.qr.show_code ? "checked" : ""}> Altında envanter no</label>
-        <label>Sessiz alan (modül) <input name="q_quiet" type="number" min="0" max="4" value="${t.qr.quiet_modules}" style="width:60px"></label></div>
-      ${editable ? `<div class="row" style="margin-top:12px"><span class="small">Logo yükle:</span><input type="file" id="lgf" accept="image/*" style="max-width:220px"><select id="lgs" style="width:90px"><option value="left">Sol</option><option value="right">Sağ</option></select><button type="button" class="btn s" id="lgu">Yükle</button></div>
-      <p class="small muted">Yalnızca kullanım izni olan resmî logo dosyalarını yükleyin.</p>
-      <div class="row" style="margin-top:12px"><button class="btn p">Şablonu kaydet</button><button type="button" class="btn" id="rst">Varsayılana dön</button></div>` : ""}</fieldset></form>
-    <div><div class="card"><h2>Önizleme</h2><img id="pv" class="lbl-prev" alt="önizleme"><p class="small muted">Ölçüler milimetre tabanlıdır; Brother şerit genişliği ve QR okunabilirliği gerçek baskıyla doğrulanmalıdır.</p></div>
-    <div class="card"><h2>Baskı geçmişi</h2><div class="tw" style="max-height:300px"><table><thead><tr><th>Tarih</th><th>Kullanıcı</th><th>Yazıcı</th><th>Adet</th><th>Durum</th></tr></thead><tbody>
-      ${jobs.map(j => `<tr><td>${fmtDate(j.at)}</td><td>${esc(j.user)}</td><td>${esc(j.printer)}</td><td>${j.asset_ids.length}×${j.copies}</td><td class="${j.status === "failed" ? "res-hata" : ""}" title="${esc(j.error || "")}">${esc(j.status)}</td></tr>`).join("") || "<tr><td colspan=5 class=muted>Yok</td></tr>"}</tbody></table></div></div></div></div>`;
-  const collect = () => {
-    const f = new FormData($("#tf")), b = k => f.get(k) === "on";
-    return {...t, width_mm: +f.get("width_mm"), height_mm: +f.get("height_mm"), dpi: +f.get("dpi"), margin_mm: +f.get("margin_mm"),
-      uppercase: b("uppercase"), border: b("border"), logo_left: b("logo_left"), logo_right: b("logo_right"),
-      header: {...t.header, enabled: b("h_en"), inverted: b("h_inv"), text: f.get("h_text")},
-      subheader: {...t.subheader, enabled: b("s_en"), lines: f.get("s_lines").split("\n").map(s => s.trim()).filter(Boolean)},
-      rows: $$(".lr").map(r => ({label: $(".rl", r).value, field: $(".rf", r).value})),
-      qr: {enabled: b("q_en"), show_code: b("q_code"), quiet_modules: +f.get("q_quiet")}};
-  };
-  let pt; const preview = () => { clearTimeout(pt); pt = setTimeout(async () => {
-    try { const bl = await fetch("/api/labels/preview", {method: "POST", headers: {"x-nx": "1", "Content-Type": "application/json"}, body: JSON.stringify({template: collect(), asset_id: +(ids[0] || 0)})});
-      if (bl.ok) $("#pv").src = URL.createObjectURL(await bl.blob()); } catch (_) {} }, 250); };
-  const bindRows = () => $$(".rdel").forEach(b => b.onclick = () => { b.parentElement.remove(); preview(); });
-  bindRows(); preview();
-  $("#tf").oninput = preview; $("#tf").onchange = preview;
-  if (editable) {
-    $("#radd").onclick = () => { $("#rows").insertAdjacentHTML("beforeend", rowHtml({label: "", field: "hardware_info"})); bindRows(); preview(); };
-    $("#tf").onsubmit = async e => { e.preventDefault(); try { await api("/api/labels/template", {method: "PUT", body: {template: collect()}}); toast("Şablon kaydedildi"); } catch (err) { fail(err); } };
-    $("#rst").onclick = async () => { if (!confirm("Varsayılan şablona dönülsün mü?")) return; await api("/api/labels/template", {method: "PUT", body: {template: T.default}}); route(); };
-    $("#lgu").onclick = async () => { const f = $("#lgf").files[0]; if (!f) return; const fd = new FormData(); fd.append("file", f);
-      try { await api("/api/labels/logo/" + $("#lgs").value, {method: "POST", form: fd}); toast("Logo yüklendi"); preview(); } catch (e) { fail(e); } };
-  }
-  if (ids.length) {
-    $("#pdf").onclick = () => window.open("/api/labels/pdf?ids=" + ids.join(","), "_blank");
-    $("#clr").onclick = () => { S.sel.clear(); go("/labels"); };
-    $("#pst").onclick = async () => { const o = $("#prn").selectedOptions[0]; if (!o) return;
-      try { const s = await api("/api/printers/status?" + qs({name: o.value, adapter: o.dataset.a})); toast(`${o.value}: ${s.message}`, !s.ok); } catch (e) { fail(e); } };
-    $("#doprint").onclick = async () => { const o = $("#prn").selectedOptions[0];
-      if (!confirm(`${ids.length} etiket × ${$("#cp").value} kopya "${o.value}" yazıcısına gönderilsin mi?`)) return;
-      try { const r = await api("/api/print", {method: "POST", body: {ids, printer: o.value, adapter: o.dataset.a, copies: +$("#cp").value}}); toast(`${r.count} etiket gönderildi (iş #${r.job_id})`); S.sel.clear(); }
-      catch (e) { fail(e); } };
-  }
-}
+/* etiket & yazıcı: web/labels.js */
 
 /* ---------------- alanlar ---------------- */
 async function fieldsPage(v) {

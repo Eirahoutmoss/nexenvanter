@@ -9,7 +9,7 @@ from datetime import date, timedelta
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 
-from . import (agent, assets as A, assignments as Z, auth, counts as C, db, exporter, federation, fields as F, kb,
+from . import (agent, assets as A, catalog, assignments as Z, auth, counts as C, db, exporter, federation, fields as F, kb,
                license, maintenance as M, network as N, reports as R, stock as S, tickets as T)
 from . import VERSION
 from .api import ApiError, base_url, body, current_user, ip, need, scoped_asset
@@ -766,6 +766,52 @@ def print_count(cid: int, u=Depends(need("count"))):
     sigs = _sig("Sayımı Yapan", d["created_by"], None) + _sig("Birim Sorumlusu", "", None) + _sig("BİM", "", None)
     return _doc("ENVANTER SAYIM TUTANAĞI", meta + tbl("Bulunamayanlar", d["missing_items"])
                 + tbl("Başka birimde kayıtlı olup burada bulunanlar", d["foreign_items"]) + f'<div class="sig">{sigs}</div>')
+
+
+# ---------------- türler & kategoriler ----------------
+@router.get("/api/catalog")
+def catalog_list(u=Depends(need("asset.read"))):
+    return {"categories": catalog.categories(), "types": catalog.types()}
+
+
+@router.get("/api/catalog/next")
+def catalog_next(type: str = "", u=Depends(need("asset.read"))):
+    return catalog.next_for(type) or {}
+
+
+@router.post("/api/catalog/categories")
+async def cat_add(req: Request, u=Depends(need("fields"))):
+    return catalog.save_category(await body(req))
+
+
+@router.patch("/api/catalog/categories/{cid}")
+async def cat_patch(cid: int, req: Request, u=Depends(need("fields"))):
+    b = await body(req)
+    r = catalog.save_category(b, cid)
+    db.audit(u["username"], "category_update", cid, b, ip(req))
+    return r
+
+
+@router.delete("/api/catalog/categories/{cid}")
+def cat_del(cid: int, u=Depends(need("fields"))):
+    catalog.delete_category(cid)
+    return {"ok": True}
+
+
+@router.post("/api/catalog/types")
+async def type_add(req: Request, u=Depends(need("fields"))):
+    return catalog.save_type(await body(req))
+
+
+@router.patch("/api/catalog/types/{tid}")
+async def type_patch(tid: int, req: Request, u=Depends(need("fields"))):
+    return catalog.save_type(await body(req), tid)
+
+
+@router.delete("/api/catalog/types/{tid}")
+def type_del(tid: int, u=Depends(need("fields"))):
+    catalog.delete_type(tid)
+    return {"ok": True}
 
 
 # ---------------- yardımcı: arayüz listeleri ----------------
