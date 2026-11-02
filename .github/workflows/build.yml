@@ -41,6 +41,24 @@ jobs:
         with:
           name: NexEnvanter-exe
           path: dist/NexEnvanter.exe
+      - name: Sürüm numarası
+        id: ver
+        shell: bash
+        run: |
+          V=$(python -c "import re;print(re.search(r'VERSION = \"([^\"]+)\"', open('app/__init__.py',encoding='utf-8').read()).group(1))")
+          echo "v=$V" >> "$GITHUB_OUTPUT"
+          if gh release view "v$V" >/dev/null 2>&1; then echo "exists=1" >> "$GITHUB_OUTPUT"; else echo "exists=0" >> "$GITHUB_OUTPUT"; fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Otomatik GitHub sürümü (main, yeni sürüm numarası)
+        if: github.ref == 'refs/heads/main' && steps.ver.outputs.exists == '0'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.ver.outputs.v }}
+          name: NexEnvanter ${{ steps.ver.outputs.v }}
+          target_commitish: ${{ github.sha }}
+          files: dist/NexEnvanter.exe
+          generate_release_notes: true
       - name: GitHub sürümü (etiket)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2

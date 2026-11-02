@@ -64,11 +64,30 @@ def install_service(port, data_dir):
     subprocess.run(["netsh", "advfirewall", "firewall", "add", "rule", f"name={TASK_NAME}", "dir=in", "action=allow",
                     "protocol=TCP", f"localport={port}"], capture_output=True, creationflags=0x08000000)
     _schtasks("/Run", "/TN", TASK_NAME)
+    _autostart_tray(True)
     msgbox(f"NexEnvanter arka plan hizmeti olarak kuruldu.\nBilgisayar açıldığında oturum açılmasa da çalışır.\n"
            f"Port: {port}\nVeri: {data_dir}")
 
 
+def _autostart_tray(on: bool):
+    """Hizmet modunda kullanıcı yazıcıları için: oturum açılınca tepsi (yazdırma aracısı) başlasın (tüm kullanıcılar)."""
+    try:
+        import winreg
+        k = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_SET_VALUE)
+        if on:
+            winreg.SetValueEx(k, TASK_NAME, 0, winreg.REG_SZ, f'"{sys.executable}" --tray')
+        else:
+            try:
+                winreg.DeleteValue(k, TASK_NAME)
+            except OSError:
+                pass
+        winreg.CloseKey(k)
+    except Exception:
+        pass
+
+
 def uninstall_service():
+    _autostart_tray(False)
     _schtasks("/End", "/TN", TASK_NAME)
     ok, out = _schtasks("/Delete", "/F", "/TN", TASK_NAME)
     msgbox("Hizmet kaldırıldı." if ok else f"Hizmet kaldırılamadı (yönetici gerekir):\n{out}", error=not ok)
@@ -130,7 +149,18 @@ def run_tray(url_local, server=None, controller=False):
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Çıkış" if not controller else "Simgeyi kapat", quit_),
     )
-    pystray.Icon("NexEnvanter", _tray_image(), "NexEnvanter", menu).run()
+    icon = pystray.Icon("NexEnvanter", _tray_image(), "NexEnvanter", menu)
+    if controller:  # sunucu hizmet (SYSTEM) olarak çalışıyor: kullanıcı yazıcıları için yazdırma aracısı
+        from . import printagent
+        stop = threading.Event()
+
+        def on_update():
+            # Güncelleme kuruluyor: exe dosyasını serbest bırak, kurulum bitince tepsiyi yeniden aç
+            subprocess.Popen(f'cmd /c ping -n 26 127.0.0.1 >nul & start "" "{sys.executable}" --tray', shell=True,
+                             creationflags=0x00000008 | 0x00000200 | 0x08000000)
+            icon.stop()
+        threading.Thread(target=printagent.run_client, args=(url_local, stop, on_update), daemon=True, name="printagent").start()
+    icon.run()
 
 
 def main():

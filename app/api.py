@@ -433,8 +433,8 @@ def printers(u=Depends(need("print"))):
 
 @app.get("/api/printers/status")
 def printer_status(name: str, adapter: str = "windows", u=Depends(need("print"))):
-    a = printing.ADAPTERS.get(adapter)
-    if not a or not a.available():
+    a = printing.adapter_for(name, adapter)
+    if not a:
         raise ApiError(400, "NO_ADAPTER", "Yazıcı adaptörü kullanılamıyor")
     return a.status(name)
 
@@ -444,12 +444,13 @@ async def do_print(req: Request, u=Depends(need("print"))):
     b = await body(req)
     lst = [] if b.get("calibration") else _ids(b.get("ids"))
     copies = max(1, min(int(b.get("copies") or 1), 20))
-    a = printing.ADAPTERS.get(b.get("adapter") or "windows")
-    if not a or not a.available():
-        raise ApiError(400, "NO_ADAPTER", "Bu bilgisayarda doğrudan yazdırma kullanılamıyor; PDF çıktısını kullanın")
     printer = b.get("printer") or db.get_setting("default_printer")
     if not printer:
         raise ApiError(400, "NO_PRINTER", "Yazıcı seçilmedi")
+    a = printing.adapter_for(printer, b.get("adapter"))
+    if not a:
+        raise ApiError(400, "NO_ADAPTER", f"'{printer}' yazıcısı ne sunucuda ne de açık bir kullanıcı oturumunda görünüyor. "
+                                          "NexEnvanter tepsi simgesinin açık olduğundan emin olun ya da PDF çıktısını kullanın")
     c = db.conn()
     jid = c.execute("INSERT INTO print_jobs(at,user,printer,adapter,asset_ids,copies,status) VALUES(?,?,?,?,?,?,?)",
                     (db.now(), u["username"], printer, a.id, json.dumps(lst), copies, "printing")).lastrowid
@@ -462,8 +463,9 @@ async def do_print(req: Request, u=Depends(need("print"))):
         render = lambda i, dpi: labels.render(items[i], qr_url(items[i]), tpl, s, dpi=dpi)  # noqa: E731
     imgs = items
     try:
-        a.print_labels(printer, render, float(tpl["width_mm"]), float(tpl["height_mm"]), len(items), copies,
-                       printing.get_profile(printer))
+        from starlette.concurrency import run_in_threadpool
+        await run_in_threadpool(a.print_labels, printer, render, float(tpl["width_mm"]), float(tpl["height_mm"]), len(items),
+                                copies, printing.get_profile(printer))
     except Exception as e:
         c.execute("UPDATE print_jobs SET status='failed', error=? WHERE id=?", (str(e), jid))
         raise ApiError(503, "PRINT_FAILED", str(e), {"job_id": jid})
@@ -490,6 +492,9 @@ async def printer_profile_put(req: Request, u=Depends(need("labels"))):
 
 def _win_adapter():
     a = printing.ADAPTERS.get("windows")
+    if a and a.available() and not a.list_printers() and printing.ADAPTERS["agent"].available():
+        raise ApiError(400, "AGENT_ONLY", "Sunucu hizmet olarak çalışıyor; sürücü denetimi ve form ekleme için programı "
+                                          "kullanıcı oturumunda açın. Yazdırma kullanıcı oturumu üzerinden yapılır.")
     if not a or not a.available():
         raise ApiError(400, "NO_ADAPTER", "Doğrudan yazdırma yalnızca Windows'ta kullanılabilir")
     return a
@@ -515,6 +520,41 @@ def label_calibration_pdf(u=Depends(need("print"))):
     tpl = labels.get_template()
     return Response(labels.pdf([labels.calibration(tpl)], int(tpl["dpi"])), media_type="application/pdf",
                     headers={"Content-Disposition": 'inline; filename="kalibrasyon.pdf"'})
+
+
+def _agent_auth(req: Request):
+    from . import printagent
+    import hmac
+    if (req.client.host if req.client else "") not in ("127.0.0.1", "::1") or \
+            not hmac.compare_digest(req.headers.get("x-agent-key") or "", printagent.key()):
+        raise ApiError(403, "FORBIDDEN", "Yetkisiz")
+
+
+@app.post("/api/printagent/hello")
+async def printagent_hello(req: Request):
+    from . import printagent
+    _agent_auth(req)
+    b = await body(req)
+    return printagent.hello(str(b.get("id"))[:40], str(b.get("user") or "")[:80], [str(x)[:200] for x in b.get("printers") or []][:200])
+
+
+@app.get("/api/printagent/page")
+def printagent_page(req: Request, job: str, i: int, dpi: int):
+    from . import printagent
+    _agent_auth(req)
+    try:
+        return Response(printagent.page(job, i, max(72, min(dpi, 1200))), media_type="image/png")
+    except KeyError:
+        raise ApiError(404, "NOT_FOUND", "İş bulunamadı")
+
+
+@app.post("/api/printagent/done")
+async def printagent_done(req: Request):
+    from . import printagent
+    _agent_auth(req)
+    b = await body(req)
+    printagent.done(str(b.get("job")), b.get("error"))
+    return {"ok": True}
 
 
 @app.get("/api/print/jobs")

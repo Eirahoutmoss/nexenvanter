@@ -105,6 +105,9 @@ def test_print_plan_and_profile(c, monkeypatch):
         def available(self):
             return True
 
+        def list_printers(self):
+            return [{"name": "Brother PT-P900W", "default": True}]
+
         def print_labels(self, printer, render, w, h, count, copies=1, profile=None):
             calls["imgs"] = [render(i, 288) for i in range(count)]
             calls["profile"] = profile
@@ -132,3 +135,32 @@ def test_network_targets():
         + bytes.fromhex("001122aabbcc")
     assert N.parse_nbstat(tid + b"\x84\x00\x00\x00\x00\x01\x00\x00\x00\x00" + rr, tid) == ("ACIL-PC01", "00:11:22:AA:BB:CC")
     assert N._kind("9100,80") == "Yazıcı" and N._kind("135,445") == "Windows"
+
+
+def test_session_print_agent(c):
+    """Hizmet SYSTEM iken kullanıcı oturumundaki aracı yazıcıları bildirir ve işi basar."""
+    import threading
+    from app import printagent, printing
+    assert printagent.hello("ag1", "hasan", ["\\\\srv\\Brother PT-P900W"])["job"] is None
+    assert any(p["adapter"] == "agent" for p in printing.all_printers())
+    a = printing.adapter_for("\\\\srv\\Brother PT-P900W")
+    assert a.id == "agent"
+    got = {}
+
+    def agent():
+        for _ in range(50):
+            j = printagent.hello("ag1", "hasan", ["\\\\srv\\Brother PT-P900W"])["job"]
+            if j:
+                got["png"] = printagent.page(j["id"], 0, 180)
+                printagent.done(j["id"], None)
+                return
+            threading.Event().wait(0.05)
+    th = threading.Thread(target=agent)
+    th.start()
+    aid = c.get("/api/assets/by-code/BLG-00001").json()["id"]
+    r = c.post("/api/print", json={"ids": [aid], "printer": "\\\\srv\\Brother PT-P900W"}, headers=H)
+    th.join()
+    assert r.status_code == 200, r.text
+    assert got["png"][:4] == b"\x89PNG"
+    # aracıya doğrudan erişim yalnızca yerelden + anahtarla
+    assert c.post("/api/printagent/hello", json={"id": "x"}, headers=H).status_code == 403

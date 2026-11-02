@@ -282,8 +282,34 @@ class WindowsSpoolerAdapter(PrinterAdapter):
             dc.DeleteDC()
 
 
+class SessionAgentAdapter(PrinterAdapter):
+    """Kullanıcı oturumundaki tepsi süreci üzerinden yazdırma (hizmet SYSTEM olarak çalışırken kullanıcı yazıcıları)."""
+    id = "agent"
+    name = "Kullanıcı oturumu yazıcıları"
+
+    def available(self):
+        from . import printagent
+        return bool(printagent.online())
+
+    def list_printers(self):
+        from . import printagent
+        return [{"name": p["name"], "default": False, "user": p["user"]} for p in printagent.printers()]
+
+    def status(self, printer):
+        from . import printagent
+        return {"ok": bool(printagent.agent_for(printer)), "message": "Hazır (kullanıcı oturumu)" if printagent.agent_for(printer)
+                else "Kullanıcı oturumu çevrimdışı"}
+
+    def print_labels(self, printer, render, width_mm, height_mm, count, copies=1, profile=None):
+        from . import printagent
+        try:
+            printagent.submit(printer, render, width_mm, height_mm, count, copies, profile or DEFAULT_PROFILE)
+        except RuntimeError as e:
+            raise PrinterError(str(e))
+
+
 # Sıra önemli: ilk uygun adaptör varsayılan olur. PDF çıktısı her zaman API üzerinden ayrıca mevcuttur.
-ADAPTERS: dict[str, PrinterAdapter] = {a.id: a for a in (WindowsSpoolerAdapter(),)}
+ADAPTERS: dict[str, PrinterAdapter] = {a.id: a for a in (WindowsSpoolerAdapter(), SessionAgentAdapter())}
 
 
 def available_adapters():
@@ -291,10 +317,28 @@ def available_adapters():
 
 
 def all_printers() -> list[dict]:
-    out = []
+    """Aynı ad hem sunucuda hem kullanıcı oturumunda varsa sunucudaki kullanılır."""
+    out, names = [], set()
     for a in available_adapters():
         try:
-            out += [{**p, "adapter": a.id} for p in a.list_printers()]
+            for p in a.list_printers():
+                if p["name"] not in names:
+                    names.add(p["name"])
+                    out.append({**p, "adapter": a.id})
         except Exception as e:
             out.append({"name": f"({a.name} hatası: {e})", "adapter": a.id, "error": True})
     return out
+
+
+def adapter_for(printer: str, preferred: str | None = None):
+    """Yazıcının hangi adaptörde göründüğünü bul (önce istenen, sonra sunucu, sonra kullanıcı oturumu)."""
+    order = [preferred] if preferred else []
+    order += [x for x in ADAPTERS if x not in order]
+    for aid in order:
+        a = ADAPTERS.get(aid)
+        try:
+            if a and a.available() and any(p["name"] == printer for p in a.list_printers()):
+                return a
+        except Exception:
+            continue
+    return None

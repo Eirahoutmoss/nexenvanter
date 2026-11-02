@@ -6,6 +6,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
 import urllib.request
 
 from . import APP_NAME, GITHUB_REPO, VERSION
@@ -29,8 +30,13 @@ def check() -> dict:
     try:
         with _get(API) as r:
             rel = json.load(r)
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return {"ok": True, "current": VERSION, "latest": VERSION, "update_available": False,
+                    "message": "GitHub'da henüz yayınlanmış sürüm yok"}
+        return {"ok": False, "current": VERSION, "message": f"GitHub yanıtı: {e.code}"}
     except Exception as e:
-        return {"ok": False, "current": VERSION, "message": f"GitHub'a ulaşılamadı: {e}"}
+        return {"ok": False, "current": VERSION, "message": f"GitHub'a ulaşılamadı (internet / vekil sunucu?): {e}"}
     latest = rel.get("tag_name", "")
     asset = next((a for a in rel.get("assets", []) if a["name"].lower() == ASSET_NAME.lower()), None)
     return {
@@ -62,12 +68,23 @@ def apply(shutdown) -> dict:
         "@echo off\r\n"
         f"set PID={os.getpid()}\r\n"
         ":wait\r\n"
-        'tasklist /FI "PID eq %PID%" | find "%PID%" >nul && (timeout /t 1 /nobreak >nul & goto wait)\r\n'
+        'tasklist /FI "PID eq %PID%" | find "%PID%" >nul && (ping -n 2 127.0.0.1 >nul & goto wait)\r\n'
         f'copy /y "{EXE_PATH}" "{EXE_PATH}.bak" >nul\r\n'
-        f'move /y "{new}" "{EXE_PATH}" >nul || (copy /y "{EXE_PATH}.bak" "{EXE_PATH}" >nul)\r\n'
+        # Tepsi süreci de aynı exe'yi kullanıyor olabilir: dosya serbest kalana kadar 90 sn dene
+        'set /a N=0\r\n'
+        ':mv\r\n'
+        f'move /y "{new}" "{EXE_PATH}" >nul 2>&1 && goto ok\r\n'
+        'set /a N+=1\r\n'
+        'if %N% GEQ 90 goto ok\r\n'
+        'ping -n 2 127.0.0.1 >nul\r\n'
+        'goto mv\r\n'
+        ':ok\r\n'
         f'start "" "{EXE_PATH}" {args}\r\n'
         'del "%~f0"\r\n', encoding="cp1254", errors="replace")
     subprocess.Popen(["cmd", "/c", str(bat)], creationflags=0x00000008 | 0x00000200, close_fds=True)  # DETACHED
+
+    from . import printagent
+    printagent.UPDATE_PENDING["on"] = True
 
     def stop():
         time.sleep(1.0)
