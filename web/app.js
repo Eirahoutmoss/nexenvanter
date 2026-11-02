@@ -4,6 +4,15 @@ const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 const S = {state: null, fields: [], sel: new Set()};
+const THEME = {
+  get: k => { try { return localStorage.getItem("nx_" + k) || ""; } catch (_) { return ""; } },
+  set(k, v) { try { localStorage.setItem("nx_" + k, v); } catch (_) {} this.apply(); },
+  apply() { const r = document.documentElement, t = this.get("theme"), a = this.get("accent");
+    t && t !== "auto" ? r.setAttribute("data-theme", t) : r.removeAttribute("data-theme");
+    a && a !== "blue" ? r.setAttribute("data-accent", a) : r.removeAttribute("data-accent"); },
+  dark() { const t = this.get("theme"); return t === "dark" || (t !== "light" && matchMedia("(prefers-color-scheme: dark)").matches); },
+};
+THEME.apply();
 
 async function api(path, {method = "GET", body, form, blob} = {}) {
   const opt = {method, headers: {"x-nx": "1"}};
@@ -67,7 +76,9 @@ function shell() {
       <input class="search" id="gsearch" placeholder="Cihaz, seri no, birim ara… (barkod okutup Enter)">
       <div class="who"><div><b>${esc(u.full_name || u.username)}</b><div class="small muted">${esc(u.role_name)}</div></div>
       <div class="avatar">${esc((u.full_name || u.username).slice(0, 2).toUpperCase())}</div>
+      <button class="thm" id="thm" title="Açık / koyu tema">${THEME.dark() ? "☀" : "☾"}</button>
       <button class="btn s" id="logout">Çıkış</button></div></div><div id="view"></div></div></div>`;
+  $("#thm").onclick = () => { THEME.set("theme", THEME.dark() ? "light" : "dark"); $("#thm").textContent = THEME.dark() ? "☀" : "☾"; };
   $("#logout").onclick = async () => { await api("/api/logout", {method: "POST"}); S.state.user = null; go("/login"); };
   $("#menu").onclick = () => $("#side").classList.toggle("open");
   refreshBadges(); clearInterval(S.bt); S.bt = setInterval(refreshBadges, 60000);
@@ -402,10 +413,16 @@ async function auditPage(v, p) {
 
 /* ---------------- ayarlar ---------------- */
 async function settingsPage(v) {
-  const s = await api("/api/settings"), admin = can("settings"), lic = S.state.license;
+  const s = await api("/api/settings"), admin = can("settings");
   const bk = admin ? await api("/api/backups") : [];
-  v.innerHTML = `<h1>Ayarlar</h1><div class="grid g2"><div>
-    <form class="card" id="sf"><h2>Kurum ve ağ</h2><fieldset ${admin ? "" : "disabled"} style="border:0;padding:0;margin:0">
+  const ACC = [["blue", "#1463ff"], ["teal", "#0e8a8a"], ["green", "#0f8f55"], ["purple", "#6d4ae0"], ["orange", "#d9640f"], ["red", "#c7333b"], ["slate", "#3d4f6e"]];
+  const th = THEME.get("theme") || "auto", ac = THEME.get("accent") || "blue";
+  v.innerHTML = `<h1>Ayarlar</h1><div class="stabs" id="stabs">${[["genel", "Genel"], ["operasyon", "Operasyon"], ["entegrasyon", "Entegrasyon"], ["sistem", "Sistem"]]
+      .map(([k, l]) => `<button data-t="${k}">${l}</button>`).join("")}</div><div class="scols" id="scols">
+    <div class="card" data-tab="genel"><h2>Görünüm</h2><p class="small muted">Bu tarayıcıya özel; her kullanıcı kendi tercihini seçer.</p>
+      <div class="f"><span class="small muted" style="display:block">Tema</span><div class="seg" style="margin-top:6px">${[["auto", "Sistem"], ["light", "Açık"], ["dark", "Koyu"]].map(([k, l]) => `<label><input type="radio" name="th" value="${k}" ${th === k ? "checked" : ""}><span>${l}</span></label>`).join("")}</div></div>
+      <div class="f" style="margin-top:12px"><span class="small muted" style="display:block">Vurgu rengi</span><div class="swatches" style="margin-top:6px">${ACC.map(([k, c]) => `<label title="${k}"><input type="radio" name="ac" value="${k}" ${ac === k ? "checked" : ""}><span style="background:${c}"></span></label>`).join("")}</div></div></div>
+    <form class="card" id="sf" data-tab="genel"><h2>Kurum ve ağ</h2><fieldset ${admin ? "" : "disabled"} style="border:0;padding:0;margin:0">
       <label class="f"><span>Kurum adı</span><input name="org_name" value="${esc(s.org_name)}"></label>
       <label class="f"><span>Birim adı</span><input name="unit_name" value="${esc(s.unit_name)}"></label>
       <label class="f"><span>Sistem başlığı</span><input name="system_title" value="${esc(s.system_title)}"></label>
@@ -414,11 +431,21 @@ async function settingsPage(v) {
       <label class="f"><span>İçe aktarmada yok sayılacak başlıklar (virgülle)</span><input name="import_ignore_headers" value="${esc((s.import_ignore_headers || []).join(", "))}"></label>
       <label class="f"><span>Saklanacak otomatik yedek sayısı</span><input name="backup_keep" type="number" min="1" value="${s.backup_keep}"></label>
       ${admin ? `<button class="btn p">Kaydet</button>` : ""}</fieldset></form>
-    <form class="card" id="pw"><h2>Parolamı değiştir</h2><label class="f"><span>Mevcut parola</span><input name="old_password" type="password" required></label>
-      <label class="f"><span>Yeni parola</span><input name="new_password" type="password" minlength="8" required></label><button class="btn">Değiştir</button></form></div>
-    <div><div class="card"><h2>Güncelleme</h2><p>Sürüm <b>${esc(S.state.app.version)}</b></p><div id="upd"></div><button class="btn p" id="chk">Güncellemeleri denetle</button></div>
-    ${admin ? `<div class="card"><h2>Yedekleme</h2><p class="small muted">Veri klasörü: <span class="mono">${esc(s.data_dir)}</span><br>Açılışta ve 24 saatte bir otomatik yedek alınır. Yedekleri ayrı bir diske/NAS'a da kopyalayın.</p>
-      <button class="btn" id="bkn">Şimdi yedekle</button><ul class="tl" style="margin-top:10px;max-height:240px;overflow:auto">${bk.map(b => `<li><a href="/api/backups/${encodeURIComponent(b.name)}">${esc(b.name)}</a> <span class="small muted">${(b.size / 1024).toFixed(0)} KB</span></li>`).join("")}</ul></div>` : ""}</div></div><div id="spro"></div>`;
+    <form class="card" id="pw" data-tab="genel"><h2>Parolamı değiştir</h2><label class="f"><span>Mevcut parola</span><input name="old_password" type="password" required></label>
+      <label class="f"><span>Yeni parola</span><input name="new_password" type="password" minlength="8" required></label><button class="btn">Değiştir</button></form>
+    <div class="card" data-tab="sistem"><h2>Güncelleme</h2><p>Sürüm <b>${esc(S.state.app.version)}</b></p><div id="upd"></div><button class="btn p" id="chk">Güncellemeleri denetle</button></div>
+    ${admin ? `<div class="card" data-tab="sistem"><h2>Yedekleme</h2><p class="small muted">Veri klasörü: <span class="mono">${esc(s.data_dir)}</span><br>Açılışta ve 24 saatte bir otomatik yedek alınır. Yedekleri ayrı bir diske/NAS'a da kopyalayın.</p>
+      <button class="btn" id="bkn">Şimdi yedekle</button><ul class="tl" style="margin-top:10px;max-height:240px;overflow:auto">${bk.map(b => `<li><a href="/api/backups/${encodeURIComponent(b.name)}">${esc(b.name)}</a> <span class="small muted">${(b.size / 1024).toFixed(0)} KB</span></li>`).join("")}</ul></div>` : ""}
+    </div><div id="spro" hidden></div>`;
+  $$("[name=th]").forEach(r => r.onchange = () => { THEME.set("theme", r.value); const b = $("#thm"); if (b) b.textContent = THEME.dark() ? "☀" : "☾"; });
+  $$("[name=ac]").forEach(r => r.onchange = () => THEME.set("accent", r.value));
+  const showTab = t => { try { sessionStorage.setItem("nx_stab", t); } catch (_) {}
+    $$("#stabs button").forEach(b => b.classList.toggle("on", b.dataset.t === t));
+    $$("#scols>.card").forEach(c => c.hidden = (c.dataset.tab || "genel") !== t); };
+  $$("#stabs button").forEach(b => b.onclick = () => showTab(b.dataset.t));
+  S.showSettingsTab = showTab;
+  let start = "genel"; try { start = sessionStorage.getItem("nx_stab") || "genel"; } catch (_) {}
+  showTab(start);
   settingsPro($("#spro"), s);
   if (admin) {
     $("#sf").onsubmit = async e => { e.preventDefault(); const b = Object.fromEntries(new FormData(e.target));

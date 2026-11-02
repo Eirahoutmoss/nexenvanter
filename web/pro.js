@@ -581,6 +581,12 @@ async function settingsPro(el, s) {
       <table><tr><th>Ad</th><th>Rol</th><th>Son kullanım</th><th></th></tr>${toks.map(t => `<tr><td>${esc(t.name)}</td><td class="small">${esc(R[t.role] || t.role)}</td><td class="small">${fmtDate(t.last_used) || "—"}</td><td>${t.active ? `<button class="btn s d" data-rv="${t.id}">İptal</button>` : '<span class="muted small">iptal</span>'}</td></tr>`).join("")}</table>
       <form id="tk" class="row" style="margin-top:8px"><input name="name" placeholder="Anahtar adı" required style="flex:1"><select name="role" style="width:170px">${Object.entries(R).map(([k, l]) => `<option value="${k}" ${k === "auditor" ? "selected" : ""}>${l}</option>`).join("")}</select><button class="btn">Oluştur</button></form><div id="tko"></div></div>
     <div class="card"><h2>PC ajanı anahtarı</h2><p class="small mono" style="word-break:break-all">${esc(s.agent_token || "")}</p><button class="btn s" id="ar">Yenile</button> <span class="small muted">Yenilerseniz GPO komutunu güncelleyin.</span></div></div></div>`;
+  // Kartları Ayarlar sekmelerine dağıt (simetrik sütun düzeni)
+  const TAB = {"Operasyon": "operasyon", "Active Directory girişi": "entegrasyon", "API anahtarları": "entegrasyon",
+    "PC ajanı anahtarı": "entegrasyon", "Lisans": "sistem", "HTTPS": "sistem"};
+  const cols = $("#scols");
+  if (cols) { $$(".card", el).forEach(c => { c.dataset.tab = TAB[($("h2", c)?.firstChild?.textContent || "").trim()] || "sistem"; cols.append(c); });
+    let t = "genel"; try { t = sessionStorage.getItem("nx_stab") || "genel"; } catch (_) {} S.showSettingsTab && S.showSettingsTab(t); }
   $("#ps").onsubmit = async e => { e.preventDefault(); const b = Object.fromEntries(new FormData(e.target));
     const body = {public_tickets: !!b.public_tickets, ticket_categories: b.ticket_categories.split("\n").map(x => x.trim()).filter(Boolean), remote_url_template: b.remote_url_template.trim(),
       maintenance_warn_days: +b.maintenance_warn_days, warranty_warn_days: +b.warranty_warn_days, renewal: {age_years: +b.age_years, tickets_12m: +b.tickets_12m},
