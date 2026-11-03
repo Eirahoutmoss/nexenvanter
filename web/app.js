@@ -4,15 +4,38 @@ const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 const S = {state: null, fields: [], sel: new Set()};
+/* Görünüm paketleri: [kimlik, ad, açıklama, yerleşim, koyu-doğal, özel pano, önizleme renkleri] */
+const SKINS = [
+  ["klasik", "Klasik", "İlk görünüm", "side", 0, "", ["#0a1430", "#f3f6fb", "#1463ff"]],
+  ["defter", "Operasyon Defteri", "Çizgili, yoğun, üst menü", "top", 0, "", ["#f3f1ec", "#1a1a1a", "#b4410c"]],
+  ["kayit", "Kurumsal Kayıt", "Serif, sakin, gruplu menü", "side", 0, "", ["#fbfaf7", "#22262a", "#1e4d3a"]],
+  ["kontrol", "Kontrol Odası", "Koyu NOC, simge şeridi", "rail", 1, "", ["#0b0c0e", "#1a1d21", "#e8a33d"]],
+  ["arama", "Arama Odaklı", "Önce arama ve komutlar", "top", 0, "search", ["#ffffff", "#111111", "#e0452b"]],
+  ["blok", "Blok Afiş", "Kalın bloklar, dev rakamlar", "top", 0, "", ["#111111", "#f2c230", "#2347c5"]],
+  ["masaustu", "Klasik Masaüstü", "Ağaç menü, durum çubuğu", "tree", 0, "", ["#f6f6f5", "#ffffff", "#2b5f9e"]],
+  ["bina", "Bina Kesiti", "Teknik çizim, kat kat cihazlar", "rail", 1, "building", ["#0f2f52", "#eaf2ff", "#ffb547"]],
+  ["gazete", "Envanter Postası", "Gazete ön sayfası", "top", 0, "gazette", ["#f2ecdc", "#1b1a17", "#9b2a17"]],
+  ["terminal", "Fosfor Terminal", "Yeşil ekran, F tuşları", "fkeys", 1, "terminal", ["#050b07", "#7dffa1", "#1f5a33"]],
+  ["sohbet", "Nex ile Konuşma", "Kanallar ve mesaj akışı", "side", 0, "chat", ["#1c1830", "#e7e4ee", "#5a3fd6"]],
+  ["metro", "Talep Metrosu", "Talepler hat üzerinde tren", "top", 0, "metro", ["#f7f7f2", "#16181d", "#e0402e"]],
+  ["mantar", "Mantar Pano", "Raptiyeli fişler, notlar", "top", 0, "cork", ["#b8875a", "#fffdf6", "#c0392b"]],
+  ["monitor", "Hasta Monitörü", "Ağın vital bulguları", "rail", 1, "vitals", ["#000000", "#3cff7a", "#ff3b3b"]],
+  ["radar", "Radar", "Ağ radar ekranında", "rail", 1, "radar", ["#03140f", "#7dfcd2", "#e9f27a"]],
+];
 const THEME = {
   get: k => { try { return localStorage.getItem("nx_" + k) || ""; } catch (_) { return ""; } },
   set(k, v) { try { localStorage.setItem("nx_" + k, v); } catch (_) {} this.apply(); },
-  apply() { const r = document.documentElement, t = this.get("theme"), a = this.get("accent");
-    t && t !== "auto" ? r.setAttribute("data-theme", t) : r.removeAttribute("data-theme");
-    a && a !== "blue" ? r.setAttribute("data-accent", a) : r.removeAttribute("data-accent"); },
+  skin() { return SKINS.find(x => x[0] === this.get("skin")) || SKINS[0]; },
+  apply() { const r = document.documentElement, t = this.get("theme"), a = this.get("accent"), sk = this.skin();
+    const set = (n, v) => v ? r.setAttribute(n, v) : r.removeAttribute(n);
+    set("data-theme", t && t !== "auto" ? t : ""); set("data-accent", a);
+    set("data-skin", sk[0] === "klasik" ? "" : sk[0]); set("data-layout", sk[3]);
+    set("data-mode", this.dark() ? "dark" : "light"); set("data-dark", sk[0] !== "klasik" && (sk[4] || this.dark()) ? "1" : ""); },
   dark() { const t = this.get("theme"); return t === "dark" || (t !== "light" && matchMedia("(prefers-color-scheme: dark)").matches); },
 };
+if (THEME.get("accent") === "blue" && !THEME.get("skin")) THEME.set("accent", "");
 THEME.apply();
+try { matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => THEME.apply()); } catch (_) {}
 
 async function api(path, {method = "GET", body, form, blob} = {}) {
   const opt = {method, headers: {"x-nx": "1"}};
@@ -61,7 +84,7 @@ function navHtml() {
   const items = NAV.filter(n => n[0] === "-" || can(n[3]));
   return items.filter((n, i) => n[0] !== "-" || (items[i + 1] && items[i + 1][0] !== "-")).map(n => n[0] === "-"
     ? `<div class="nav-h">${n[1]}</div>`
-    : `<a href="#${n[0]}" data-p="${n[0]}"><span class="ic">${n[1]}</span>${n[2]}${n[4] ? `<span class="bdg" data-b="${n[4]}"></span>` : ""}</a>`).join("");
+    : `<a href="#${n[0]}" data-p="${n[0]}" title="${n[2]}"><span class="ic">${n[1]}</span>${n[2]}${n[4] ? `<span class="bdg" data-b="${n[4]}"></span>` : ""}</a>`).join("");
 }
 async function refreshBadges() {
   try { const b = await api("/api/badges"); $$("[data-b]").forEach(x => { const n = b[x.dataset.b] || 0; x.textContent = n; x.hidden = !n; }); } catch (_) {}
@@ -78,6 +101,7 @@ function shell() {
       <div class="avatar">${esc((u.full_name || u.username).slice(0, 2).toUpperCase())}</div>
       <button class="thm" id="thm" title="Açık / koyu tema">${THEME.dark() ? "☀" : "☾"}</button>
       <button class="btn s" id="logout">Çıkış</button></div></div><div id="view"></div></div></div>`;
+  if (typeof skinChrome === "function") skinChrome();
   $("#thm").onclick = () => { THEME.set("theme", THEME.dark() ? "light" : "dark"); $("#thm").textContent = THEME.dark() ? "☀" : "☾"; };
   $("#logout").onclick = async () => { await api("/api/logout", {method: "POST"}); S.state.user = null; go("/login"); };
   $("#menu").onclick = () => $("#side").classList.toggle("open");
@@ -106,7 +130,7 @@ async function route() {
   const m = path.match(/^\/asset\/(\d+)/);
   const pm = path.match(/^(\/[a-z]+)\/(\d+)$/);
   try {
-    if (path === "/") await dashboard(v);
+    if (path === "/") { const d = THEME.skin()[5]; if (d && typeof SKINDASH !== "undefined" && SKINDASH[d]) await SKINDASH[d](v).catch(() => dashboard(v)); else await dashboard(v); }
     else if (path === "/assets") await assetList(v, params);
     else if (path === "/new") await assetForm(v, null, params);
     else if (PRO[path]) await PRO[path](v, params);
@@ -415,13 +439,14 @@ async function auditPage(v, p) {
 async function settingsPage(v) {
   const s = await api("/api/settings"), admin = can("settings");
   const bk = admin ? await api("/api/backups") : [];
-  const ACC = [["blue", "#1463ff"], ["teal", "#0e8a8a"], ["green", "#0f8f55"], ["purple", "#6d4ae0"], ["orange", "#d9640f"], ["red", "#c7333b"], ["slate", "#3d4f6e"]];
-  const th = THEME.get("theme") || "auto", ac = THEME.get("accent") || "blue";
+  const ACC = [["", "conic-gradient(#1463ff,#e8a33d,#1e4d3a,#e0402e,#1463ff)"], ["blue", "#1463ff"], ["teal", "#0e8a8a"], ["green", "#0f8f55"], ["purple", "#6d4ae0"], ["orange", "#d9640f"], ["red", "#c7333b"], ["slate", "#3d4f6e"]];
+  const th = THEME.get("theme") || "auto", ac = THEME.get("accent"), cur = THEME.skin()[0];
   v.innerHTML = `<h1>Ayarlar</h1><div class="stabs" id="stabs">${[["genel", "Genel"], ["operasyon", "Operasyon"], ["entegrasyon", "Entegrasyon"], ["sistem", "Sistem"]]
       .map(([k, l]) => `<button data-t="${k}">${l}</button>`).join("")}</div><div class="scols" id="scols">
-    <div class="card" data-tab="genel"><h2>Görünüm</h2><p class="small muted">Bu tarayıcıya özel; her kullanıcı kendi tercihini seçer.</p>
-      <div class="f"><span class="small muted" style="display:block">Tema</span><div class="seg" style="margin-top:6px">${[["auto", "Sistem"], ["light", "Açık"], ["dark", "Koyu"]].map(([k, l]) => `<label><input type="radio" name="th" value="${k}" ${th === k ? "checked" : ""}><span>${l}</span></label>`).join("")}</div></div>
-      <div class="f" style="margin-top:12px"><span class="small muted" style="display:block">Vurgu rengi</span><div class="swatches" style="margin-top:6px">${ACC.map(([k, c]) => `<label title="${k}"><input type="radio" name="ac" value="${k}" ${ac === k ? "checked" : ""}><span style="background:${c}"></span></label>`).join("")}</div></div></div>
+    <div class="card" data-tab="genel"><h2>Görünüm</h2><p class="small muted">Bu tarayıcıya özel; her kullanıcı kendi tercihini seçer. Paket seçince tüm arayüz (menü yerleşimi, yazı tipleri, renkler, ana sayfa) ona göre değişir.</p>
+      <div class="f"><span class="small muted" style="display:block">Görünüm paketi</span><div class="skins">${SKINS.map(k => `<label><input type="radio" name="sk" value="${k[0]}" ${cur === k[0] ? "checked" : ""}><span class="sw"><span class="pv">${k[6].map(c => `<i style="background:${c}"></i>`).join("")}</span><span class="nm">${k[1]}<small>${k[2]}</small></span></span></label>`).join("")}</div></div>
+      <div class="f" style="margin-top:14px"><span class="small muted" style="display:block">Tema (koyu görünümlü paketlerde etkisizdir)</span><div class="seg" style="margin-top:6px">${[["auto", "Sistem"], ["light", "Açık"], ["dark", "Koyu"]].map(([k, l]) => `<label><input type="radio" name="th" value="${k}" ${th === k ? "checked" : ""}><span>${l}</span></label>`).join("")}</div></div>
+      <div class="f" style="margin-top:12px"><span class="small muted" style="display:block">Vurgu rengi (ilk seçenek: paketin kendi rengi)</span><div class="swatches" style="margin-top:6px">${ACC.map(([k, c]) => `<label title="${k || "paket rengi"}"><input type="radio" name="ac" value="${k}" ${ac === k ? "checked" : ""}><span style="background:${c}"></span></label>`).join("")}</div></div></div>
     <form class="card" id="sf" data-tab="genel"><h2>Kurum ve ağ</h2><fieldset ${admin ? "" : "disabled"} style="border:0;padding:0;margin:0">
       <label class="f"><span>Kurum adı</span><input name="org_name" value="${esc(s.org_name)}"></label>
       <label class="f"><span>Birim adı</span><input name="unit_name" value="${esc(s.unit_name)}"></label>
@@ -439,6 +464,7 @@ async function settingsPage(v) {
     </div><div id="spro" hidden></div>`;
   $$("[name=th]").forEach(r => r.onchange = () => { THEME.set("theme", r.value); const b = $("#thm"); if (b) b.textContent = THEME.dark() ? "☀" : "☾"; });
   $$("[name=ac]").forEach(r => r.onchange = () => THEME.set("accent", r.value));
+  $$("[name=sk]").forEach(r => r.onchange = () => { THEME.set("skin", r.value); shell(); route(); });
   const showTab = t => { try { sessionStorage.setItem("nx_stab", t); } catch (_) {}
     $$("#stabs button").forEach(b => b.classList.toggle("on", b.dataset.t === t));
     $$("#scols>.card").forEach(c => c.hidden = (c.dataset.tab || "genel") !== t); };

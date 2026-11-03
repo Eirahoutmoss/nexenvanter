@@ -1037,3 +1037,15 @@ def meta(u=Depends(need("asset.read"))):
     return {"ticket_statuses": T.STATUSES, "ticket_priorities": T.PRIORITIES, "ticket_categories": db.get_setting("ticket_categories"),
             "staff": [x["username"] for x in auth.list_users() if x["active"] and x["role"] in ("admin", "manager", "operator")]
             if auth.can(u, "ticket.manage") else [], "data_dir": str(DIRS.data) if auth.can(u, "settings") else None}
+
+
+# ---------------- görünüm paketleri ----------------
+@router.get("/api/locations/overview")
+def locations_overview(u=Depends(need("asset.read"))):
+    """Tüm birimlerin cihaz sayısı ve sorunlu cihaz sayısı (bina/radar görünümleri için)."""
+    rows = db.conn().execute(
+        "SELECT json_extract(data,'$.location_name') l, COUNT(*) n, "
+        "SUM(CASE WHEN status IN ('arızalı','serviste','bakımda') THEN 1 ELSE 0 END) bad "
+        "FROM assets WHERE archived=0 GROUP BY l ORDER BY l LIMIT 400")
+    return [{"name": r["l"] or "(Belirtilmemiş)", "count": r["n"], "bad": r["bad"] or 0}
+            for r in rows if auth.in_scope(u, r["l"])]
