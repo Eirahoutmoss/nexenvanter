@@ -569,6 +569,7 @@ async function settingsPro(el, s) {
     <div class="card"><h2>API anahtarları</h2><p class="small muted">Kurumlar paneli ve diğer sistemlerle (HBYS vb.) entegrasyon için. Anahtar yalnızca oluşturulurken bir kez gösterilir.</p>
       <table><tr><th>Ad</th><th>Rol</th><th>Son kullanım</th><th></th></tr>${toks.map(t => `<tr><td>${esc(t.name)}</td><td class="small">${esc(R[t.role] || t.role)}</td><td class="small">${fmtDate(t.last_used) || "—"}</td><td>${t.active ? `<button class="btn s d" data-rv="${t.id}">İptal</button>` : '<span class="muted small">iptal</span>'}</td></tr>`).join("")}</table>
       <form id="tk" class="row" style="margin-top:8px"><input name="name" placeholder="Anahtar adı" required style="flex:1"><select name="role" style="width:170px">${Object.entries(R).map(([k, l]) => `<option value="${k}" ${k === "auditor" ? "selected" : ""}>${l}</option>`).join("")}</select><button class="btn">Oluştur</button></form><div id="tko"></div></div>
+    </div></div>`;
   // Kartları Ayarlar sekmelerine dağıt (simetrik sütun düzeni)
   const TAB = {"Operasyon": "operasyon", "Active Directory girişi": "entegrasyon", "API anahtarları": "entegrasyon",
     "PC ajanı anahtarı": "entegrasyon", "Lisans": "sistem", "HTTPS": "sistem"};
