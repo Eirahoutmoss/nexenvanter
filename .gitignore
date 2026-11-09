@@ -15,3 +15,9 @@ data/
 
 *.key
 license.nxl
+
+agent/bin/
+agent/obj/
+build/agent/
+*.pfx
+enroll.json

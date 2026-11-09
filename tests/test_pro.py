@@ -139,20 +139,15 @@ def test_unit_rep_scope(c):
 
 
 def test_agent(c):
-    st = c.get("/api/settings").json()
-    tok = st["agent_token"]
-    anon = TestClient(c.app)
-    assert anon.get("/agent.ps1?t=yanlis").status_code == 403
-    assert "X-Agent-Token" in anon.get(f"/agent.ps1?t={tok}").text
+    from app import agent
     rep = {"hostname": "ACIL-PC01", "serial": "123", "macs": ["00-11-22-33-44-2A"], "cpu": "Intel i5", "ram_gb": 16,
            "os": "Windows 11 Pro", "manufacturer": "FUJITSU", "model": "D556", "ips": ["10.1.1.5"], "user": "HASTANE\\ayse"}
-    r = anon.post("/api/agent/report", json=rep, headers={"X-Agent-Token": tok}).json()
+    r = agent.report(rep, "10.1.1.5")
     assert r["matched"]  # MAC ile eşleşti (A2)
     a = c.get(f"/api/assets/{r['asset_id']}").json()
     assert a["asset_code"] == "A2" and a["data"]["ram_gb"] == "16" and a["data"]["hostname"] == "ACIL-PC01"
     assert a["data"]["brand_model"] == "Fujitsu Esprimo D556"  # elle girilen korunur
-    r = anon.post("/api/agent/report", json={**rep, "hostname": "YENI-PC", "serial": "S-NEW", "macs": []},
-                  headers={"X-Agent-Token": tok}).json()
+    r = agent.report({**rep, "hostname": "YENI-PC", "serial": "S-NEW", "macs": []}, "10.1.1.6")
     assert not r["matched"]
     un = c.get("/api/agent/reports?unmatched=1").json()
     assert un[0]["hostname"] == "YENI-PC"

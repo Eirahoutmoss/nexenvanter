@@ -1,6 +1,4 @@
-"""PC donanım ajanı: Windows bilgisayarlar PowerShell betiğiyle donanım bilgisini gönderir;
-seri no / MAC / bilgisayar adıyla envanter kaydına eşlenir."""
-import hmac
+"""Ajan verisinin envanter kaydıyla eşlenmesi (NexAgent): seri no → MAC → bilgisayar adı."""
 import json
 
 from . import assets as A, db
@@ -8,46 +6,7 @@ from .textnorm import fold
 
 AGENT_FIELDS = ("hostname", "os", "cpu", "ram_gb", "disk", "last_user", "ip_address")
 
-SCRIPT = r"""# NexEnvanter donanim ajani - Windows PowerShell 5.1+
-$ErrorActionPreference = 'SilentlyContinue'
-$Server = '__SERVER__'
-$Token = '__TOKEN__'
-$cs = Get-CimInstance Win32_ComputerSystem
-$bios = Get-CimInstance Win32_BIOS
-$os = Get-CimInstance Win32_OperatingSystem
-$cpu = (Get-CimInstance Win32_Processor | Select-Object -First 1).Name
-$disks = @(Get-CimInstance Win32_DiskDrive | ForEach-Object { '{0} {1:N0}GB' -f $_.Model.Trim(), ($_.Size / 1GB) })
-$nics = @(Get-CimInstance Win32_NetworkAdapterConfiguration -Filter 'IPEnabled=True')
-$body = @{
-  hostname     = $env:COMPUTERNAME
-  serial       = "$($bios.SerialNumber)".Trim()
-  manufacturer = "$($cs.Manufacturer)".Trim()
-  model        = "$($cs.Model)".Trim()
-  cpu          = "$cpu".Trim()
-  ram_gb       = [math]::Round($cs.TotalPhysicalMemory / 1GB)
-  disk         = ($disks -join '; ')
-  os           = "$($os.Caption) $($os.Version)".Trim()
-  user         = "$($cs.UserName)"
-  domain       = "$($cs.Domain)"
-  macs         = @($nics | ForEach-Object { $_.MACAddress } | Where-Object { $_ })
-  ips          = @($nics | ForEach-Object { $_.IPAddress } | Where-Object { $_ -and $_ -notmatch ':' })
-} | ConvertTo-Json -Compress
-try {
-  Invoke-RestMethod -Uri "$Server/api/agent/report" -Method Post -Body ([Text.Encoding]::UTF8.GetBytes($body)) `
-    -ContentType 'application/json; charset=utf-8' -Headers @{ 'X-Agent-Token' = $Token } -TimeoutSec 30 | Out-Null
-} catch { exit 1 }
-"""
-
 _BAD_SERIALS = {"", "to be filled by o.e.m.", "default string", "system serial number", "0", "none", "not specified", "123456789"}
-
-
-def script(base_url: str) -> str:
-    return SCRIPT.replace("__SERVER__", base_url).replace("__TOKEN__", db.get_setting("agent_token") or "")
-
-
-def check_token(tok: str | None) -> bool:
-    real = db.get_setting("agent_token") or ""
-    return bool(tok) and bool(real) and hmac.compare_digest(tok, real)
 
 
 def _norm(d: dict) -> dict:

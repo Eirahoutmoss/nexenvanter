@@ -615,8 +615,7 @@ def get_settings(u=Depends(need("asset.read"))):
     keys = SETTING_KEYS if auth.can(u, "settings") else ("org_name", "unit_name", "system_title", "ticket_categories",
                                                           "remote_url_template", "maintenance_warn_days", "warranty_warn_days")
     return {k: s.get(k) for k in keys} | {"detected_url": f"{app.state.scheme}://{lan_ip()}:{app.state.port}",
-                                          "data_dir": str(DIRS.data) if auth.can(u, "settings") else None,
-                                          "agent_token": s.get("agent_token") if auth.can(u, "network") else None}
+                                          "data_dir": str(DIRS.data) if auth.can(u, "settings") else None}
 
 
 @app.put("/api/settings")
@@ -673,6 +672,8 @@ def upd_apply(req: Request, u=Depends(need("settings"))):
 from . import api_pro  # noqa: E402
 
 app.include_router(api_pro.router)
+from . import api_nexagent  # noqa: E402
+app.include_router(api_nexagent.router)
 
 # ---------- web arayüzü ----------
 app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")

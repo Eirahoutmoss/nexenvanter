@@ -47,16 +47,14 @@ def test_discovery_approval(c):
 
 def test_alerts_change_and_offline(c):
     from app import alerts, agent, db
-    tok = c.get("/api/settings").json()["agent_token"]
-    anon = TestClient(c.app)
     rep = {"hostname": "ACIL-PC", "serial": "SN-100", "macs": ["00-11-22-33-44-11"], "ram_gb": 16, "cpu": "i5", "os": "Win11"}
-    anon.post("/api/agent/report", json=rep, headers={"X-Agent-Token": tok})  # PC1 ile MAC eşleşir
+    agent.report(rep, "10.0.0.1")  # PC1 ile MAC eşleşir
     # RAM düşerse alarm
-    anon.post("/api/agent/report", json={**rep, "ram_gb": 8}, headers={"X-Agent-Token": tok})
+    agent.report({**rep, "ram_gb": 8}, "10.0.0.1")
     al = c.get("/api/alerts").json()
     assert any("RAM" in x["message"] for x in al["items"])
     # seri değişirse kritik alarm
-    anon.post("/api/agent/report", json={**rep, "ram_gb": 8, "serial": "SN-999"}, headers={"X-Agent-Token": tok})
+    agent.report({**rep, "ram_gb": 8, "serial": "SN-999"}, "10.0.0.1")
     al = c.get("/api/alerts").json()
     assert any(x["severity"] == "kritik" and "Seri" in x["message"] for x in al["items"])
     # alarmı arızaya çevir

@@ -212,8 +212,24 @@ def init():
                 t.execute("INSERT OR IGNORE INTO settings VALUES(?,?)", (k, json.dumps(v, ensure_ascii=False)))
             t.execute("UPDATE fields SET options=? WHERE key='status'", (json.dumps(STATUSES),))  # 'yedek' durumu eklendi
         c.execute("PRAGMA user_version=4")
-    # Gelecek geçişler: if ver < 5: ...
+    if ver < 5:
+        with tx() as t:
+            for stmt in SCHEMA_V5.split(";"):
+                if stmt.strip():
+                    t.execute(stmt)
+        c.execute("PRAGMA user_version=5")
+    # Gelecek geçişler: if ver < 6: ...
 
+
+SCHEMA_V5 = """
+CREATE TABLE nexagent_nodes (agent_id TEXT PRIMARY KEY, asset_id INTEGER, address TEXT NOT NULL, port INTEGER NOT NULL DEFAULT 47820,
+  fingerprint TEXT, pending_fp TEXT, hostname TEXT, version TEXT, os TEXT, state TEXT NOT NULL DEFAULT 'yeni',
+  first_seen TEXT NOT NULL, last_seen TEXT, last_try TEXT, last_error TEXT, fail_count INTEGER NOT NULL DEFAULT 0,
+  config TEXT, override TEXT, etag TEXT, collected_at TEXT);
+CREATE INDEX ix_nexnodes_asset ON nexagent_nodes(asset_id);
+CREATE TABLE nexagent_snapshots (agent_id TEXT PRIMARY KEY, at TEXT NOT NULL, data TEXT NOT NULL);
+CREATE TABLE nexagent_cfg (key TEXT PRIMARY KEY, value TEXT NOT NULL)
+"""
 
 SCHEMA_V4 = """
 ALTER TABLE kb ADD COLUMN public INTEGER NOT NULL DEFAULT 0;

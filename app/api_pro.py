@@ -420,20 +420,6 @@ def net_sw_del(sid: int, u=Depends(need("network"))):
 
 
 # ---------------- ajan ----------------
-@router.get("/agent.ps1", response_class=PlainTextResponse)
-def agent_script(t: str = ""):
-    if not agent.check_token(t):
-        raise ApiError(403, "FORBIDDEN", "Geçersiz ajan anahtarı")
-    return PlainTextResponse(agent.script(base_url()), media_type="text/plain; charset=utf-8")
-
-
-@router.post("/api/agent/report")
-async def agent_report(req: Request):
-    if not agent.check_token(req.headers.get("x-agent-token")):
-        raise ApiError(403, "FORBIDDEN", "Geçersiz ajan anahtarı")
-    return agent.report(await body(req), ip(req))
-
-
 @router.get("/api/agent/reports")
 def agent_reports(unmatched: int = 0, u=Depends(need("network"))):
     return agent.reports(bool(unmatched))
@@ -446,14 +432,6 @@ async def agent_link(req: Request, u=Depends(need("network"))):
         return agent.link(b.get("hostname"), int(b.get("asset_id") or 0) or None, b.get("new_code"), u["username"])
     except KeyError:
         raise ApiError(404, "NOT_FOUND", "Ajan kaydı bulunamadı")
-
-
-@router.post("/api/agent/token/rotate")
-def agent_rotate(req: Request, u=Depends(need("settings"))):
-    import secrets
-    db.set_setting("agent_token", secrets.token_urlsafe(24))
-    db.audit(u["username"], "agent_token_rotate", ip=ip(req))
-    return {"agent_token": db.get_setting("agent_token")}
 
 
 # ---------------- raporlar ----------------

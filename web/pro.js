@@ -197,6 +197,7 @@ function detailPro(a) {
   if (a.consumables.length) sec.push(`<div class="card"><h2>Uyumlu sarf malzemeleri</h2><ul class="tl">${a.consumables.map(c => `<li><a href="#/stock/${c.id}">${esc(c.name)}</a> <span class="${c.low ? "err" : "muted"} small">stok ${c.stock} ${esc(c.unit)}</span></li>`).join("")}</ul></div>`);
   if (a.network.length) sec.push(`<div class="card"><h2>Ağda görülme</h2><table><tr><th>MAC</th><th>IP</th><th>Ad</th><th>Switch / port</th><th>Son</th></tr>${a.network.map(n => `<tr><td class="mono small">${n.mac}</td><td>${esc(n.ip || "")}</td><td class="small">${esc(n.hostname || "")}</td><td class="small">${esc(n.switch || "")} ${esc(n.port || "")}${n.vlan ? " · VLAN " + esc(n.vlan) : ""}</td><td class="small">${fmtDate(n.last_seen)}</td></tr>`).join("")}</table></div>`);
   $("#dx").innerHTML = sec.join("");
+  if (typeof nxAssetCard === "function") nxAssetCard(a);
 }
 async function dashPro(el) {
   const s = await api("/api/summary").catch(() => null);
@@ -447,9 +448,7 @@ PRO["/kb/:id"] = async (v, id) => {
 PRO["/network"] = async (v, p) => {
   const tab = p.tab || "hosts";
   const [n, st] = await Promise.all([api("/api/network"), api("/api/settings")]);
-  const ag = tab === "agent" ? await api("/api/agent/reports") : [];
   const s = n.state, lr = s.last_result || {};
-  const cmd = `powershell -NoProfile -ExecutionPolicy Bypass -Command "irm '${S.state.base_url}/agent.ps1?t=${st.agent_token || ""}' | iex"`;
   v.innerHTML = `<div class="row"><h1>Ağ & Ajan</h1><span class="sp"></span><button class="btn p" id="scan" ${s.running ? "disabled" : ""}>${s.running ? "Taranıyor… " + esc(s.progress) : "⟳ Şimdi tara"}</button></div>
     <div class="grid g4"><div class="card stat"><div><div class="n">${n.seen_7d}</div><div class="l">Son 7 günde görülen MAC</div></div></div><div class="card stat"><div><div class="n">${n.matched}</div><div class="l">Envanterle eşleşen</div></div></div>
       <div class="card stat"><div><div class="n err">${n.unknown.length}</div><div class="l">Envanterde olmayan</div></div></div><div class="card stat"><div><div class="n">${n.stale.length}</div><div class="l">${n.stale_days} gündür görülmeyen</div></div></div></div>
@@ -463,7 +462,7 @@ PRO["/network"] = async (v, p) => {
       <form id="sw" class="row" style="margin-top:10px"><input name="name" placeholder="Ad" style="width:120px"><input name="host" placeholder="IP adresi" required style="width:140px"><input name="community" placeholder="community (public)" style="width:160px"><button class="btn">Ekle</button></form>
       <p class="small muted">Salt-okuma SNMP v2c. Okunanlar: BRIDGE-MIB/Q-BRIDGE MAC tablosu, port adları, ARP tablosu. En az MAC barındıran port cihazın bağlı olduğu port kabul edilir (uplink'ler elenir).</p></div></div>
     ${n.blocks.length ? `<div class="card"><h2>Bloklar</h2><table><tr><th>Blok</th><th>Hedef</th><th>Adres</th><th>Bulunan</th><th>Envanterle eşleşen</th><th>Eşleşmeyen</th></tr>${n.blocks.map(b => `<tr><td><a href="#/network?tab=hosts&block=${encodeURIComponent(b.name)}"><b>${esc(b.name)}</b></a></td><td class="mono small">${esc(b.target || "")}</td><td>${b.size ?? ""}</td><td>${b.alive}</td><td>${b.matched}</td><td class="${b.alive - b.matched ? "err" : ""}">${b.alive - b.matched}</td></tr>`).join("")}</table></div>` : ""}
-    <div class="card"><div class="steps">${[["hosts", `Bulunan cihazlar (${n.hosts.length})`], ["unknown", `MAC: envanterde olmayan (${n.unknown.length})`], ["stale", `Görülmeyen (${n.stale.length})`], ["agent", "PC ajanı"]].map(([k, l]) => `<a href="#/network?tab=${k}"><span class="${tab === k ? "on" : ""}">${l}</span></a>`).join("")}</div>
+    <div class="card"><div class="steps">${[["hosts", `Bulunan cihazlar (${n.hosts.length})`], ["unknown", `MAC: envanterde olmayan (${n.unknown.length})`], ["stale", `Görülmeyen (${n.stale.length})`], ["agent", "NexAgent"]].map(([k, l]) => `<a href="#/network?tab=${k}"><span class="${tab === k ? "on" : ""}">${l}</span></a>`).join("")}</div>
     ${tab === "hosts" ? (() => { const hs = n.hosts.filter(h => (!p.block || h.block === p.block) && (!p.unk || !h.asset));
       return `<div class="row" style="margin-bottom:8px"><select id="hb" style="max-width:240px"><option value="">Tüm bloklar</option>${n.blocks.map(b => `<option ${p.block === b.name ? "selected" : ""}>${esc(b.name)}</option>`).join("")}</select>
         <label class="row small"><input type="checkbox" id="hu" ${p.unk ? "checked" : ""}> Yalnızca envanterde olmayanlar</label><span class="sp"></span><span class="muted small">${hs.length} cihaz</span></div>
@@ -474,24 +473,14 @@ PRO["/network"] = async (v, p) => {
       <td class="small">${esc(x.switch || "")} ${esc(x.port || "")}${x.vlan ? " · VLAN " + esc(x.vlan) : ""}</td><td class="small">${fmtDate(x.first_seen)} / ${fmtDate(x.last_seen)}</td>
       <td>${can("asset.write") ? `<a class="btn s" href="#/new?${qs({mac_address: x.mac, ip_address: x.ip || "", hostname: (x.hostname || "").split(".")[0]})}">Envantere ekle</a>` : ""}</td></tr>`).join("") || "<tr><td colspan=6 class=muted>Yok</td></tr>"}</tbody></table></div>`
     : tab === "stale" ? `<div class="tw"><table><thead><tr><th>Barkod</th><th>Cihaz</th><th>MAC</th><th>Son görülme</th></tr></thead><tbody>${n.stale.map(x => `<tr><td><a href="#/asset/${x.id}">${esc(x.asset_code)}</a></td><td class="small">${esc(x.brand_model || "")}</td><td class="mono small">${x.mac}</td><td class="small">${fmtDate(x.last_seen) || "hiç"}</td></tr>`).join("") || "<tr><td colspan=4 class=muted>Yok</td></tr>"}</tbody></table></div>`
-    : `<h3>Kurulum</h3><p class="small">Bilgisayarlarda aşağıdaki komut donanım bilgisini (seri no, model, işlemci, RAM, disk, MAC, IP, oturum açan kullanıcı) gönderir. Grup İlkesi (GPO) ile “Zamanlanmış görev — oturum açılışında ve günlük” olarak dağıtın.</p>
-      <pre class="mono small code">${esc(cmd)}</pre><button class="btn s" id="cp">Kopyala</button>
-      <p class="small muted">Eşleştirme sırası: seri no → MAC → bilgisayar adı. Elle girilmiş marka-model / seri no korunur, yalnızca boşsa doldurulur.</p>
-      <h3>Bildirimler (${ag.length})</h3><div class="tw"><table><thead><tr><th>Bilgisayar</th><th>Seri no</th><th>Model</th><th>Kullanıcı</th><th>IP</th><th>Son bildirim</th><th>Envanter</th></tr></thead><tbody>
-      ${ag.map(r => `<tr><td><b>${esc(r.hostname)}</b></td><td class="small mono">${esc(r.serial || "")}</td><td class="small">${esc((r.data.manufacturer || "") + " " + (r.data.model || ""))}<br><span class="muted">${esc(r.data.cpu || "")} · ${esc(r.data.ram_gb || "")} GB</span></td>
-        <td class="small">${esc(r.data.user || "")}</td><td class="small">${esc((r.data.ips || []).join(", "))}</td><td class="small">${fmtDate(r.at)}</td>
-        <td>${r.asset_id ? `<a href="#/asset/${r.asset_id}">${esc(r.asset_code)}</a>` : `<button class="btn s" data-link="${esc(r.hostname)}">Eşle / ekle</button>`}</td></tr>`).join("") || "<tr><td colspan=7 class=muted>Henüz bildirim yok</td></tr>"}</tbody></table></div>`}</div>`;
+    : `<div id="nxa"><p class="muted">Yükleniyor…</p></div>`}</div>`;
+  if (tab === "agent") nxRender($("#nxa")).catch(fail);
   if ($("#hb")) { $("#hb").onchange = e => go("/network?" + qs({tab: "hosts", block: e.target.value, unk: p.unk || ""})); $("#hu").onchange = e => go("/network?" + qs({tab: "hosts", block: p.block || "", unk: e.target.checked ? 1 : ""})); }
   $("#scan").onclick = async () => { try { await api("/api/network/scan", {method: "POST"}); toast("Tarama başladı"); setTimeout(function poll() { if (location.hash.startsWith("#/network")) api("/api/network").then(x => x.state.running ? setTimeout(poll, 3000) : route()); }, 2000); route(); } catch (e) { fail(e); } };
   $("#nc").onsubmit = async e => { e.preventDefault(); const b = Object.fromEntries(new FormData(e.target)); b.subnets = b.subnets.split("\n").map(x => x.trim()).filter(Boolean);
     try { await api("/api/network/config", {method: "PUT", body: b}); toast("Kaydedildi"); } catch (err) { fail(err); } };
   $("#sw").onsubmit = async e => { e.preventDefault(); try { await api("/api/network/switches", {method: "POST", body: Object.fromEntries(new FormData(e.target))}); route(); } catch (err) { fail(err); } };
   $$("[data-del]").forEach(b => b.onclick = async () => { if (confirm("Silinsin mi?")) { await api("/api/network/switches/" + b.dataset.del, {method: "DELETE"}); route(); } });
-  if ($("#cp")) $("#cp").onclick = () => navigator.clipboard?.writeText(cmd).then(() => toast("Kopyalandı"));
-  $$("[data-link]").forEach(b => b.onclick = () => modal("Ajan bildirimini eşle: " + b.dataset.link, `<label class="f"><span>Mevcut kaydın barkodu</span><input name="code"></label><p class="small muted">— ya da —</p>
-    <label class="f"><span>Yeni kayıt oluştur: barkod</span><input name="new_code"></label>`, async x => {
-      const asset_id = x.code ? (await api("/api/assets/by-code/" + encodeURIComponent(x.code))).id : null;
-      const a = await api("/api/agent/link", {method: "POST", body: {hostname: b.dataset.link, asset_id, new_code: x.new_code}}); toast("Eşlendi: " + a.asset_code); route(); }, "Eşle"));
 };
 
 /* ---------- raporlar ---------- */
@@ -580,7 +569,6 @@ async function settingsPro(el, s) {
     <div class="card"><h2>API anahtarları</h2><p class="small muted">Kurumlar paneli ve diğer sistemlerle (HBYS vb.) entegrasyon için. Anahtar yalnızca oluşturulurken bir kez gösterilir.</p>
       <table><tr><th>Ad</th><th>Rol</th><th>Son kullanım</th><th></th></tr>${toks.map(t => `<tr><td>${esc(t.name)}</td><td class="small">${esc(R[t.role] || t.role)}</td><td class="small">${fmtDate(t.last_used) || "—"}</td><td>${t.active ? `<button class="btn s d" data-rv="${t.id}">İptal</button>` : '<span class="muted small">iptal</span>'}</td></tr>`).join("")}</table>
       <form id="tk" class="row" style="margin-top:8px"><input name="name" placeholder="Anahtar adı" required style="flex:1"><select name="role" style="width:170px">${Object.entries(R).map(([k, l]) => `<option value="${k}" ${k === "auditor" ? "selected" : ""}>${l}</option>`).join("")}</select><button class="btn">Oluştur</button></form><div id="tko"></div></div>
-    <div class="card"><h2>PC ajanı anahtarı</h2><p class="small mono" style="word-break:break-all">${esc(s.agent_token || "")}</p><button class="btn s" id="ar">Yenile</button> <span class="small muted">Yenilerseniz GPO komutunu güncelleyin.</span></div></div></div>`;
   // Kartları Ayarlar sekmelerine dağıt (simetrik sütun düzeni)
   const TAB = {"Operasyon": "operasyon", "Active Directory girişi": "entegrasyon", "API anahtarları": "entegrasyon",
     "PC ajanı anahtarı": "entegrasyon", "Lisans": "sistem", "HTTPS": "sistem"};
@@ -606,7 +594,6 @@ async function settingsPro(el, s) {
   $("#tk").onsubmit = async e => { e.preventDefault(); try { const t = await api("/api/tokens", {method: "POST", body: Object.fromEntries(new FormData(e.target))});
     $("#tko").innerHTML = `<p class="small">Anahtar (bir daha gösterilmeyecek):</p><pre class="mono small code">${esc(t.token)}</pre>`; } catch (err) { fail(err); } };
   $$("[data-rv]").forEach(b => b.onclick = async () => { if (confirm("Anahtar iptal edilsin mi?")) { await api("/api/tokens/" + b.dataset.rv, {method: "DELETE"}); route(); } });
-  $("#ar").onclick = async () => { if (confirm("Ajan anahtarı yenilensin mi? Eski komut çalışmaz.")) { await api("/api/agent/token/rotate", {method: "POST"}); route(); } };
 }
 
 boot().catch(e => { document.body.innerHTML = `<p style="padding:20px">Sunucuya bağlanılamadı: ${esc(e.message)}</p>`; });

@@ -218,6 +218,8 @@ def main():
     db.init()
     db.backup_loop()
     network.scheduler()
+    from . import nexagent
+    nexagent.scheduler()
     from . import alerts, printers
     alerts.scheduler()
     printers.scheduler() if hasattr(printers, "scheduler") else None

@@ -2,7 +2,7 @@
 
 **Hastane Envanter Yönetim Sistemi** — Takip. Kontrol. Güven. Her Zaman.
 
-Cihaz envanterini tek merkezde tutar; Excel'den toplu aktarır, QR kodlu etiket basar (Brother PT-P900WC ve diğer yazıcılar), telefonla QR okutulunca cihaz kartını açar. QR'dan arıza bildirimi, sayım, zimmet/devir tutanağı, bakım-garanti takibi, sarf stok, bilgi bankası, ağ keşfi (SNMP/ARP), PC donanım ajanı, raporlar ve denetim paketi, Active Directory girişi, kurumlar paneli. Tek dosya `NexEnvanter.exe` — kurulum ve ek bağımlılık gerektirmez.
+Cihaz envanterini tek merkezde tutar; Excel'den toplu aktarır, QR kodlu etiket basar (Brother PT-P900WC ve diğer yazıcılar), telefonla QR okutulunca cihaz kartını açar. QR'dan arıza bildirimi, sayım, zimmet/devir tutanağı, bakım-garanti takibi, sarf stok, bilgi bankası, ağ keşfi (SNMP/ARP), NexAgent donanım/yazılım ajanı (Windows ve Linux), raporlar ve denetim paketi, Active Directory girişi, kurumlar paneli. Tek dosya `NexEnvanter.exe` — kurulum ve ek bağımlılık gerektirmez.
 
 Geliştiren: **Hasan Güler**
 
@@ -51,7 +51,9 @@ app/
   auth.py       kullanıcı, oturum, roller
   updater.py    GitHub sürüm denetimi ve uygulama içi güncelleme
   tickets.py counts.py assignments.py maintenance.py stock.py kb.py   operasyon modülleri
-  network.py snmp.py agent.py   ağ keşfi, SNMP istemcisi, PC ajanı
+  network.py snmp.py agent.py   ağ keşfi, SNMP istemcisi, ajan verisini envanterle eşleme
+  nexagent.py api_nexagent.py   NexAgent istemcisi (imzalı çağrı, TLS sabitleme), yönetim API
+  agent/                        NexAgent (C# / .NET 10) — bkz. docs/NEXAGENT.md
   reports.py federation.py      raporlar, denetim paketi, kurumlar paneli
   api_pro.py    pro API + QR sayfası + yazdırılabilir tutanaklar
   tls.py        HTTPS sertifikası
