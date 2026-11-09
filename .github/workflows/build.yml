@@ -40,7 +40,7 @@ jobs:
       - name: Windows kurucusu (Inno Setup)
         shell: pwsh
         run: |
-          $v = python -c "import re;print(re.search(r'VERSION = \"([^\"]+)\"', open('app/__init__.py',encoding='utf-8').read()).group(1))"
+          $v = ((Select-String -Path app\__init__.py -Pattern 'VERSION = "([^"]+)"').Matches[0].Groups[1].Value)
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
           & $iscc "/DAppVersion=$v" installer\windows\NexEnvanter.iss
