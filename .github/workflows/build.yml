@@ -11,7 +11,7 @@ permissions:
   contents: write
 
 jobs:
-  windows-exe:
+  windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -37,17 +37,105 @@ jobs:
           Stop-Process -Id $p.Id -Force
           if (-not $r.setup_needed) { throw "Beklenmeyen durum" }
           Write-Host "Sürüm: $($r.app.version)"
+      - name: Windows kurucusu (Inno Setup)
+        shell: pwsh
+        run: |
+          $v = python -c "import re;print(re.search(r'VERSION = \"([^\"]+)\"', open('app/__init__.py',encoding='utf-8').read()).group(1))"
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
+          & $iscc "/DAppVersion=$v" installer\windows\NexEnvanter.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC hata verdi" }
+          Get-ChildItem dist
       - uses: actions/upload-artifact@v4
         with:
-          name: NexEnvanter-exe
-          path: dist/NexEnvanter.exe
-      - name: Sürüm numarası
-        id: ver
-        shell: bash
+          name: windows
+          path: |
+            dist/NexEnvanter.exe
+            dist/NexEnvanter-Setup-*.exe
+
+  linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest -q
+      - run: pyinstaller NexEnvanter.spec --noconfirm --clean
+      - name: Duman testi
+        run: |
+          ./dist/NexEnvanter --headless --port 8799 --data "$RUNNER_TEMP/nxdata" &
+          PID=$!
+          for i in $(seq 1 30); do
+            if curl -fs http://127.0.0.1:8799/api/state > state.json; then break; fi; sleep 2
+          done
+          kill $PID || true
+          grep -q setup_needed state.json || { echo "yanıt yok"; cat "$RUNNER_TEMP/nxdata/logs/nexenvanter.log" || true; exit 1; }
+      - name: tar.gz paketi
         run: |
           V=$(python -c "import re;print(re.search(r'VERSION = \"([^\"]+)\"', open('app/__init__.py',encoding='utf-8').read()).group(1))")
+          D="dist/NexEnvanter-$V-linux-x64"; mkdir -p "$D"
+          cp dist/NexEnvanter "$D/nexenvanter"; cp installer/linux/install.sh "$D/install.sh"; cp README.md "$D/"
+          chmod +x "$D/nexenvanter" "$D/install.sh"
+          tar -C dist -czf "dist/NexEnvanter-$V-linux-x64.tar.gz" "NexEnvanter-$V-linux-x64"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/NexEnvanter-*.tar.gz
+
+  agent:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { rid: win-x64,     os: windows-latest, ext: ".exe" }
+          - { rid: linux-x64,   os: ubuntu-22.04,   ext: "" }
+          - { rid: linux-arm64, os: ubuntu-22.04,   ext: "" }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Derle
+        shell: bash
+        working-directory: agent
+        run: |
+          dotnet publish -c Release -r ${{ matrix.rid }} --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o ../build/agent/${{ matrix.rid }}
+      - name: Adlandır
+        shell: bash
+        run: |
+          V=$(grep -oP '(?<=<Version>)[^<]+' agent/NexAgent.csproj)
+          mkdir -p out
+          SRC=build/agent/${{ matrix.rid }}/NexAgent${{ matrix.ext }}
+          [ -f "$SRC" ] || SRC=build/agent/${{ matrix.rid }}/nexagent
+          cp "$SRC" "out/NexAgent-$V-${{ matrix.rid }}${{ matrix.ext }}"
+          ls -l out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agent-${{ matrix.rid }}
+          path: out/*
+
+  release:
+    needs: [windows, linux, agent]
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: art
+          merge-multiple: true
+      - name: Sürüm
+        id: ver
+        run: |
+          V=$(python3 -c "import re;print(re.search(r'VERSION = \"([^\"]+)\"', open('app/__init__.py',encoding='utf-8').read()).group(1))")
           echo "v=$V" >> "$GITHUB_OUTPUT"
           if gh release view "v$V" >/dev/null 2>&1; then echo "exists=1" >> "$GITHUB_OUTPUT"; else echo "exists=0" >> "$GITHUB_OUTPUT"; fi
+          ls -l art
         env:
           GH_TOKEN: ${{ github.token }}
       - name: Otomatik GitHub sürümü (main, yeni sürüm numarası)
@@ -57,11 +145,11 @@ jobs:
           tag_name: v${{ steps.ver.outputs.v }}
           name: NexEnvanter ${{ steps.ver.outputs.v }}
           target_commitish: ${{ github.sha }}
-          files: dist/NexEnvanter.exe
+          files: art/*
           generate_release_notes: true
       - name: GitHub sürümü (etiket)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/NexEnvanter.exe
+          files: art/*
           generate_release_notes: true

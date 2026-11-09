@@ -16,6 +16,19 @@ Geliştiren: **Hasan Güler**
 
 Veriler exe'nin yanındaki `data\` klasöründedir (veritabanı, otomatik yedekler, günlükler `logs\`, HTTPS sertifikası `tls\`).
 
+## Kurulum
+
+GitHub **Releases** sayfasından:
+
+| Dosya | Ne için |
+|---|---|
+| `NexEnvanter-Setup-<sürüm>.exe` | Windows kurucusu (yönetici). Sihirbaz: port seçimi (varsayılan 8750; doluysa kurulum durur), Windows hizmeti olarak otomatik başlatma, güvenlik duvarı kuralı (etki alanı/özel profil), masaüstü kısayolu. Kaldırırken veriler varsayılan olarak korunur. Sessiz kurulum: `Setup.exe /VERYSILENT /PORT=8750` |
+| `NexEnvanter.exe` | Kurulumsuz tek dosya (aynı zamanda uygulama içi güncelleme dosyası) |
+| `NexEnvanter-<sürüm>-linux-x64.tar.gz` | Linux: `tar xzf ... && cd ... && sudo ./install.sh --port 8750` (systemd, ayrı `nexenvanter` kullanıcısı, `/opt/nexenvanter`, veri `/var/lib/nexenvanter`). Kaldırma: `sudo ./install.sh --uninstall [--purge]` |
+| `NexAgent-<sürüm>-win-x64.exe`, `-linux-x64`, `-linux-arm64` | İstemci ajanı; Envanter'in “Ağ & Ajan” sayfasındaki paket indirme düğmesi bunları `enroll.json` ile paketler (bkz. docs/NEXAGENT.md) |
+
+Veri klasörü (`%ProgramData%\NexEnvanter` / `/var/lib/nexenvanter`) veritabanı, yedekler ve `nexagent/signing.pem` imza anahtarını içerir — **düzenli yedekleyin**; anahtar kaybolursa kurulu ajanlar yönetilemez.
+
 ## Komut satırı
 
 ```

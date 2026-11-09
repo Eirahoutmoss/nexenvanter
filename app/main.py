@@ -26,7 +26,7 @@ TASK_NAME = "NexEnvanter"
 
 def msgbox(text, title="NexEnvanter", error=False):
     print(text)
-    if sys.platform == "win32" and getattr(sys, "frozen", False):
+    if sys.platform == "win32" and getattr(sys, "frozen", False) and not os.environ.get("NEXENV_QUIET"):
         import ctypes
         ctypes.windll.user32.MessageBoxW(None, text, title, 0x10 if error else 0x40)
 
@@ -177,8 +177,11 @@ def main():
     p.add_argument("--firewall", action="store_true", help="Windows güvenlik duvarında portu aç (yönetici gerekir)")
     p.add_argument("--install-service", action="store_true", help="Açılışta oturumsuz çalışan arka plan hizmeti kur (yönetici)")
     p.add_argument("--uninstall-service", action="store_true", help="Arka plan hizmetini kaldır (yönetici)")
+    p.add_argument("--quiet", action="store_true", help="İletişim kutusu gösterme (kurulum betikleri için)")
     p.add_argument("--version", action="version", version=f"{APP_NAME} {VERSION}")
     args = p.parse_args()
+    if args.quiet:
+        os.environ["NEXENV_QUIET"] = "1"
 
     DIRS.init(args.data)
     _setup_logging(DIRS.data)
