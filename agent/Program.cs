@@ -9,6 +9,34 @@ public static class Program
     public static int Main(string[] a)
     {
         try { Console.OutputEncoding = Encoding.UTF8; } catch { }
+        var interactive = a.Length == 0 && !Console.IsInputRedirected;   // çift tıklama
+        var pause = a.Contains("--pause") || interactive;
+        a = a.Where(x => x != "--pause").ToArray();
+        int code;
+        if (interactive) code = Menu();
+        else code = Dispatch(a);
+        if (pause && !Console.IsInputRedirected) { Console.WriteLine("\nKapatmak için bir tuşa basın…"); try { Console.ReadKey(true); } catch { } }
+        return code;
+    }
+
+    static int Menu()
+    {
+        Console.WriteLine($"NexAgent {AppInfo.Version} — NexEnvanter envanter ajanı\n");
+        var installed = Cfg.Exists();
+        var enroll = File.Exists(Path.Combine(AppContext.BaseDirectory, "enroll.json"));
+        Console.WriteLine(installed ? "Durum: bu bilgisayarda kurulu.\n" : "Durum: kurulu değil.\n");
+        Console.WriteLine(installed ? "  [D] Durum   [K] Kaldır   [Ç] Çıkış" : enroll ? "  [K] Kur (yönetici onayı istenir)   [Ç] Çıkış" : "  enroll.json bulunamadı. NexAgent.exe ile aynı klasöre koyun.   [Ç] Çıkış");
+        Console.Write("\nSeçim: ");
+        var k = char.ToUpperInvariant(Console.ReadKey(true).KeyChar); Console.WriteLine(k);
+        Console.WriteLine();
+        if (installed && k == 'D') return Installer.Status();
+        if (installed && k == 'K') return Installer.Uninstall(Array.Empty<string>());
+        if (!installed && enroll && k == 'K') return Installer.Install(Array.Empty<string>());
+        return 0;
+    }
+
+    static int Dispatch(string[] a)
+    {
         var cmd = a.Length > 0 ? a[0].ToLowerInvariant() : "help";
         switch (cmd)
         {

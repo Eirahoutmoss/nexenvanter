@@ -26,7 +26,7 @@ public static class Installer
         try
         {
             var psi = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = true, Verb = "runas" };
-            psi.ArgumentList.Add(verb); foreach (var x in a) psi.ArgumentList.Add(x);
+            psi.ArgumentList.Add(verb); foreach (var x in a) psi.ArgumentList.Add(x); psi.ArgumentList.Add("--pause");
             using var p = Process.Start(psi)!; p.WaitForExit(); return p.ExitCode;
         }
         catch { Console.Error.WriteLine("Yönetici onayı verilmedi."); return 5; }
