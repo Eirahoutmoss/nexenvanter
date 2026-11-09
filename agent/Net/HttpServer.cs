@@ -45,7 +45,7 @@ public sealed class HttpServer
         try { _l = new TcpListener(IPAddress.IPv6Any, cfg.Port); _l.Server.DualMode = true; _l.Start(16); }
         catch { _l = new TcpListener(IPAddress.Any, cfg.Port); _l.Start(16); }
         Log.Info($"Dinleniyor: {cfg.Port}/tcp, sertifika {Fingerprint[..16]}…");
-        using var _ = ct.Register(() => { try { _l!.Stop(); } catch { } });
+        using var reg = ct.Register(() => { try { _l!.Stop(); } catch { } });
         while (!ct.IsCancellationRequested)
         {
             TcpClient c;

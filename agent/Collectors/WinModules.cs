@@ -32,7 +32,7 @@ static class WinModules
     static List<Dictionary<string, object?>> Rows(string scope, string wql, params string[] props)
     {
         var res = new List<Dictionary<string, object?>>();
-        var opts = new EnumerationOptions { Timeout = TimeSpan.FromSeconds(20), ReturnImmediately = false };
+        var opts = new System.Management.EnumerationOptions { Timeout = TimeSpan.FromSeconds(20), ReturnImmediately = false };
         using var s = new ManagementObjectSearcher(new ManagementScope(scope), new ObjectQuery(wql), opts);
         foreach (ManagementBaseObject o in s.Get())
         {
@@ -248,7 +248,7 @@ static class WinModules
         if (g == null) return null;
         var q = $"ASSOCIATORS OF {{Win32_Group.Domain='{g["Domain"]}',Name='{g["Name"]}'}} WHERE AssocClass=Win32_GroupUser";
         var res = new List<string>();
-        using var s = new ManagementObjectSearcher(new ManagementScope(@"root\cimv2"), new ObjectQuery(q), new EnumerationOptions { Timeout = TimeSpan.FromSeconds(20) });
+        using var s = new ManagementObjectSearcher(new ManagementScope(@"root\cimv2"), new ObjectQuery(q), new System.Management.EnumerationOptions { Timeout = TimeSpan.FromSeconds(20) });
         foreach (ManagementBaseObject o in s.Get()) using (o) res.Add($"{o["Domain"]}\\{o["Name"]}");
         return res;
     }
