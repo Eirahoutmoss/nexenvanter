@@ -67,7 +67,7 @@ async function nxRender(el) {
     ${canSet ? `<div class="grid g2"><form class="card" id="nxcfg"><h2>Ajan ayarları</h2>
       <div class="grid g2"><label class="f"><span>Ajan portu (tüm filo)</span><input name="port" type="number" min="1024" max="65535" value="${c.port}"></label>
         <label class="f"><span>Ajanın verisini yenileme (dk)</span><input name="interval_minutes" type="number" min="15" value="${c.interval_minutes}"></label></div>
-      <label class="f"><span>İzinli kaynak adresler — bu Envanter sunucusunun IP'si (her satıra bir; IP veya CIDR)</span><textarea name="sources" rows="2">${esc((c.sources || []).join("\n"))}</textarea></label>
+      <label class="f"><span>İzinli kaynak adresler — bu Envanter sunucusunun IP'si (her satıra bir; IP veya CIDR). Boş bırakılırsa sunucunun kendi adresleri otomatik kullanılır</span><textarea name="sources" rows="2">${esc((c.sources || []).join("\n"))}</textarea></label>
       <div class="grid g2"><label class="f"><span>Otomatik çekme (saat, 0 = kapalı)</span><input name="pull_hours" type="number" min="0" value="${c.pull_hours}"></label>
         <label class="f"><span>Yazılım listesi üst sınırı</span><input name="software_max" type="number" min="0" max="5000" value="${c.software_max}"></label></div>
       <label class="row small"><input type="checkbox" name="pull_on_start" ${c.pull_on_start ? "checked" : ""}> Envanter açılınca ajanlardan otomatik veri çek</label>

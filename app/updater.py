@@ -7,6 +7,7 @@ import sys
 import threading
 import time
 import urllib.error
+import ssl
 import urllib.request
 
 from . import APP_NAME, GITHUB_REPO, VERSION
@@ -23,7 +24,15 @@ def _ver(s: str) -> tuple:
 def _get(url, timeout=15):
     req = urllib.request.Request(url, headers={"User-Agent": f"{APP_NAME}/{VERSION}",
                                                "Accept": "application/vnd.github+json"})
-    return urllib.request.urlopen(req, timeout=timeout)
+    try:
+        return urllib.request.urlopen(req, timeout=timeout)
+    except urllib.error.URLError as e:
+        # Windows'ta eksik kök sertifika / kurumsal SSL denetimi: gömülü Mozilla CA paketiyle yeniden dene
+        if not isinstance(getattr(e, "reason", None), ssl.SSLError):
+            raise
+        import certifi
+        ctx = ssl.create_default_context(cafile=certifi.where())
+        return urllib.request.urlopen(req, timeout=timeout, context=ctx)
 
 
 def check() -> dict:

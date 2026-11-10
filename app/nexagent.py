@@ -47,6 +47,30 @@ class FingerprintMismatch(AgentError):
 
 
 # ------------------------------------------------------------------ ayarlar
+def local_ips() -> list[str]:
+    """Bu sunucunun yerel IPv4 adresleri (ajanın izinli kaynak listesi için otomatik öneri)."""
+    import socket
+    found: list[str] = []
+    try:  # varsayılan rotanın çıkış adresi
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("10.255.255.255", 9))
+        found.append(s.getsockname()[0])
+        s.close()
+    except OSError:
+        pass
+    try:
+        for ai in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            found.append(ai[4][0])
+    except OSError:
+        pass
+    out = []
+    for ip in found:
+        if ip.startswith(("127.", "169.254.", "0.")) or ip in out:
+            continue
+        out.append(ip)
+    return out
+
+
 def cfg() -> dict:
     out = json.loads(json.dumps(DEFAULTS))
     r = db.conn().execute("SELECT value FROM nexagent_cfg WHERE key='cfg'").fetchone()
@@ -54,6 +78,8 @@ def cfg() -> dict:
         saved = json.loads(r[0])
         out.update({k: v for k, v in saved.items() if k != "modules"})
         out["modules"].update(saved.get("modules") or {})
+    if not out["sources"]:  # elle girilmediyse sunucunun kendi adreslerini kullan (kaydedilmez)
+        out["sources"] = [f"{ip}/32" for ip in local_ips()]
     return out
 
 
